@@ -19,6 +19,7 @@
   "readme": "README.md",
   "image": "image.png",
   "author": "franklinl",
+  "ai": "yes",
   "version": "1.0.1",
   "preferences": "preferences.json",
   "tags": [
