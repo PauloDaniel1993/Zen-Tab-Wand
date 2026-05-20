@@ -448,6 +448,21 @@ export const handleOrganizeClick = async () => {
     } catch (e) {
       console.error(`${LOG} nesting diagnostic failed:`, e);
     }
+
+    // Tab-list settle: after raw `tabsContainer.insertBefore(...)` moves used
+    // by skip-domain parking / strict-mode ejection / moveUngroupedToTop, the
+    // gBrowser's internal `_tPos` cache and the workspace tab-container state
+    // are out of sync with the DOM. Symptom: the first drag attempt on any
+    // sorted tab is silently dropped — second attempt works because some
+    // intervening event resync the bookkeeping. Trigger that resync explicitly.
+    try {
+      window.gZenWorkspaces?.updateTabsContainers?.();
+      // Force gBrowser to rebuild its position cache by reading .tabs (which
+      // some Firefox versions invalidate via the getter; harmless if not).
+      void window.gBrowser?.tabs?.length;
+    } catch (e) {
+      console.warn(`${LOG} tab-list settle failed (non-fatal):`, e);
+    }
   } finally {
     console.groupEnd();
   }
