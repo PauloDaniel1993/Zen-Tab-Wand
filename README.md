@@ -13,6 +13,10 @@ Two passes:
 
 There's no cloud component. The AI runs on your machine via [Ollama](https://ollama.com) (recommended) or Firefox's bundled ML engine (limited).
 
+### How I reccomend using it
+
+If I have no groups and a lot of tabs, I'll run the ai model to create a good approximation of groups. Once I have a solid foundation to work from, I can turn the ai off and add individual domains to rules manually. I find this method to be the most efficient use of ai while being most practical and precise.
+
 ## Installing
 
 In Zen → Sine → Marketplace, search for "Zen Tab Wand" and install. Or sideload by dropping the source into your Sine mods folder.
