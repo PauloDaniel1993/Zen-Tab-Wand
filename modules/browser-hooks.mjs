@@ -22,7 +22,7 @@
 
 import { CONFIG, LOG, BUILD_VERSION, isZenColorName, isUnsetLabel } from "./config.mjs";
 import { getTabUrl, getHostname } from "./tabs.mjs";
-import { readRulesPref, writeRulesPref, isMinimalStyle } from "./rules.mjs";
+import { readRulesPref, writeRulesPref, readSkipDomainsPref, writeSkipDomainsPref, isMinimalStyle } from "./rules.mjs";
 import { applyGroupColor, syncAllGroupColors } from "./groups.mjs";
 
 // No-op shims for back-compat. The TabGrouped listener is gone, so there's
@@ -68,38 +68,25 @@ const applyToRule = (tab, groupName, group) => {
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
-// Install a tab right-click menu item that lets the user explicitly add the
-// hovered tab's hostname to its current group's rule. Replaces the previous
-// passive TabGrouped listener — which couldn't reliably distinguish user
-// actions from Zen's async session-restore re-attaches. Explicit user click
-// = explicit user intent.
+// Install a tab right-click submenu `Add "<hostname>" to Rule…` that lists
+// every current rule as a child menuitem. User picks a rule → the hostname is
+// added to that rule's domains. The current group is irrelevant — this lets
+// the user grow ANY rule for the hostname, not just the rule matching the
+// tab's existing group.
 //
-// The menu item is hidden when:
-//   • The hovered tab isn't in a group
-//   • The group's label doesn't match any current rule
-//   • The hostname is already in the matched rule's domains
-//
-// Otherwise it shows `Add "<hostname>" to "<group>" rule`.
-const MENUITEM_ID = "zen-tab-wand-add-to-rule";
+// Replaces the previous global TabGrouped listener (which couldn't reliably
+// distinguish user actions from Zen's async session-restore re-attaches) with
+// an explicit user-driven flow: no events, no race conditions.
+const PARENT_MENU_ID = "zen-tab-wand-add-to-rule-menu";
 
 const findContextMenu = () =>
   document.getElementById("tabContextMenu") ||
   document.getElementById("zenTabContextMenu") ||
   null;
 
-const computeMenuState = (tab) => {
-  if (!tab) return { show: false, reason: "no-tab" };
-  const groupEl = tab.closest?.("tab-group");
-  const groupName = groupEl?.getAttribute?.("label");
-  if (!groupName || isUnsetLabel(groupName)) return { show: false, reason: "not-in-group" };
-  let hostname = null;
-  try { hostname = getHostname(getTabUrl(tab)); } catch {}
-  if (!hostname) return { show: false, reason: "no-hostname" };
-  const rules = readRulesPref() || [];
-  const rule = rules.find((r) => r.name === groupName);
-  if (!rule) return { show: false, reason: "no-matching-rule" };
-  if (rule.domains.includes(hostname)) return { show: false, reason: "already-in-rule" };
-  return { show: true, tab, group: groupEl, groupName, hostname };
+const getTabHostname = (tab) => {
+  if (!tab) return null;
+  try { return getHostname(getTabUrl(tab)); } catch { return null; }
 };
 
 export const setupTabContextMenu = () => {
@@ -110,44 +97,106 @@ export const setupTabContextMenu = () => {
   }
   if (menu._zaoContextMenuInstalled) return;
 
-  const item = document.createXULElement("menuitem");
-  item.id = MENUITEM_ID;
-  item.setAttribute("hidden", "true");
-  menu.appendChild(item);
+  // Build the submenu skeleton. Submenu items are rebuilt each popupshowing
+  // so rule edits in settings are immediately reflected.
+  const parent = document.createXULElement("menu");
+  parent.id = PARENT_MENU_ID;
+  parent.setAttribute("label", "Add to Rule…");
+  parent.setAttribute("hidden", "true");
 
-  let currentState = null;
+  const popup = document.createXULElement("menupopup");
+  parent.appendChild(popup);
+  menu.appendChild(parent);
 
-  const onShowing = () => {
-    const tab = window.TabContextMenu?.contextTab || window.gBrowser?.selectedTab;
-    const state = computeMenuState(tab);
-    currentState = state;
-    if (state.show) {
-      item.hidden = false;
-      item.setAttribute("label", `Add "${state.hostname}" to "${state.groupName}" rule`);
-    } else {
-      item.hidden = true;
+  // Captured on the outer popupshowing and read by the inner command handler.
+  let currentTab = null;
+  let currentHostname = null;
+
+  const onOuterShowing = (e) => {
+    // Only react to the outer (tab) context menu opening — submenu popupshowing
+    // also bubbles through here.
+    if (e.target !== menu) return;
+    currentTab = window.TabContextMenu?.contextTab || window.gBrowser?.selectedTab;
+    currentHostname = getTabHostname(currentTab);
+    if (!currentTab || !currentHostname) {
+      parent.hidden = true;
+      return;
     }
+    parent.hidden = false;
+    parent.setAttribute("label", `Add "${currentHostname}" to Rule…`);
+  };
+
+  const onSubmenuShowing = () => {
+    while (popup.firstChild) popup.firstChild.remove();
+    const rules = readRulesPref() || [];
+    const skipList = readSkipDomainsPref() || [];
+    if (rules.length === 0) {
+      const placeholder = document.createXULElement("menuitem");
+      placeholder.setAttribute("label", "(no rules defined yet)");
+      placeholder.setAttribute("disabled", "true");
+      popup.appendChild(placeholder);
+    } else {
+      for (const rule of rules) {
+        const item = document.createXULElement("menuitem");
+        const inRule = currentHostname && rule.domains.includes(currentHostname);
+        // Checkmark for rules that already contain this hostname (disabled
+        // to make it clear the action is a no-op).
+        item.setAttribute("label", inRule ? `✓ ${rule.name}` : rule.name);
+        if (inRule) item.setAttribute("disabled", "true");
+        item.dataset.zaoRuleName = rule.name;
+        popup.appendChild(item);
+      }
+    }
+
+    // Skip-domains entry: a distinct "destination" for the hostname (parks
+    // the tab at the top of the workspace on every tidy click instead of
+    // grouping it). Separated from rules with a menuseparator. Shows ✓ +
+    // disabled if the hostname is already in the skip list.
+    popup.appendChild(document.createXULElement("menuseparator"));
+    const skipItem = document.createXULElement("menuitem");
+    const inSkip = currentHostname && skipList.includes(currentHostname);
+    skipItem.setAttribute("label", inSkip ? "✓ Skip" : "Skip");
+    if (inSkip) skipItem.setAttribute("disabled", "true");
+    skipItem.dataset.zaoSkip = "true";
+    popup.appendChild(skipItem);
   };
 
   const onCommand = (e) => {
-    if (e.target !== item) return;
-    if (!currentState?.show) return;
-    applyToRule(currentState.tab, currentState.groupName, currentState.group);
+    const item = e.target;
+    if (!currentTab || !currentHostname) return;
+    if (item?.dataset?.zaoSkip === "true") {
+      const skipList = readSkipDomainsPref() || [];
+      if (skipList.includes(currentHostname)) return;
+      skipList.push(currentHostname);
+      writeSkipDomainsPref(skipList);
+      console.log(`${LOG} context-menu: added "${currentHostname}" to skip-domains`);
+      return;
+    }
+    const ruleName = item?.dataset?.zaoRuleName;
+    if (!ruleName) return;
+    // applyToRule reads the hostname off the tab itself; pass the tab's
+    // current group element so its color is preserved if applyToRule has to
+    // create a new rule (defensive — the submenu only lists existing rules,
+    // but applyToRule is safe either way).
+    const groupEl = currentTab.closest?.("tab-group");
+    applyToRule(currentTab, ruleName, groupEl);
   };
 
-  menu.addEventListener("popupshowing", onShowing);
-  menu.addEventListener("command", onCommand);
-  menu._zaoContextMenuInstalled = { onShowing, onCommand, item };
-  console.log(`${LOG} tab context menu installed (build ${BUILD_VERSION})`);
+  menu.addEventListener("popupshowing", onOuterShowing);
+  popup.addEventListener("popupshowing", onSubmenuShowing);
+  popup.addEventListener("command", onCommand);
+  menu._zaoContextMenuInstalled = { onOuterShowing, onSubmenuShowing, onCommand, parent, popup };
+  console.log(`${LOG} tab context submenu installed (build ${BUILD_VERSION})`);
 };
 
 export const teardownTabContextMenu = () => {
   const menu = findContextMenu();
   if (!menu?._zaoContextMenuInstalled) return;
-  const { onShowing, onCommand, item } = menu._zaoContextMenuInstalled;
-  try { menu.removeEventListener("popupshowing", onShowing); } catch {}
-  try { menu.removeEventListener("command", onCommand); } catch {}
-  if (item?.isConnected) try { item.remove(); } catch {}
+  const { onOuterShowing, onSubmenuShowing, onCommand, parent, popup } = menu._zaoContextMenuInstalled;
+  try { menu.removeEventListener("popupshowing", onOuterShowing); } catch {}
+  try { popup.removeEventListener("popupshowing", onSubmenuShowing); } catch {}
+  try { popup.removeEventListener("command", onCommand); } catch {}
+  if (parent?.isConnected) try { parent.remove(); } catch {}
   menu._zaoContextMenuInstalled = null;
 };
 
