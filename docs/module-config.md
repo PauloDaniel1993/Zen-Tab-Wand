@@ -7,7 +7,7 @@ Holds every magic value the rest of the codebase references. No runtime state, n
 | Name | Type | Purpose |
 |---|---|---|
 | `LOG` | string | Prefix for all console messages (`"[ZenTabWand]"`) |
-| `BUILD_VERSION` | string | Internal build tag (e.g. `"1.0.0+cleanup.12"`), distinct from theme.json's user-facing version. Bumped on each push that changes runtime code so the Browser Console reveals which build is loaded. |
+| `BUILD_VERSION` | string | Mirrors theme.json's `version` for shipped releases (e.g. `"1.0.1"`); for in-progress iterative builds gets a `+tag.N` suffix so the Browser Console reveals which build is loaded vs. a stale module cache. |
 | `CONFIG` | object | Pref names, IDs, polling intervals, chrome:// URLs, AI-tuning constants |
 | `ZEN_UNSET_LABEL` | string | U+200B placeholder Zen uses for new unnamed tab-groups |
 | `isUnsetLabel(label)` | fn | Detects an unnamed group |
