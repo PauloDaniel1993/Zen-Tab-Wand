@@ -25,15 +25,6 @@ import { getTabUrl, getHostname } from "./tabs.mjs";
 import { readRulesPref, writeRulesPref, readSkipDomainsPref, writeSkipDomainsPref, isMinimalStyle } from "./rules.mjs";
 import { applyGroupColor, syncAllGroupColors } from "./groups.mjs";
 
-// No-op shims for back-compat. The TabGrouped listener is gone, so there's
-// nothing to suppress. These exports stay so existing callsites in pass1.mjs /
-// ai.mjs / groups.mjs / click-handler.mjs don't need touching; they can be
-// cleaned up in a future sweep.
-export const pushTabGroupedHookSuppression = () => {};
-export const popTabGroupedHookSuppression = () => {};
-export const setTabGroupedHookSuppressed = (_val) => {};
-export const markTabAsEjected = (_tab) => {};
-
 // ─── Helpers (module level so they're reusable + easy to find) ───────────────
 
 // Add the tab's hostname to an existing rule, or create a new rule if the group

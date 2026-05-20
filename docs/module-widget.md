@@ -7,8 +7,9 @@ Builds the pill table inside the settings dialog. One export, lots of internal h
 | Name | Notes |
 |---|---|
 | `buildRulesEditor(rules)` | Returns the `<div class="zao-rules-editor">` container element. Mutations to the `rules` array auto-persist to the pref. The container exposes a `_zaoRefresh(reason)` method for external refresh triggers. |
-| `buildBackupRestoreSection()` | Returns a `<div class="zao-backup-section">` containing a Sine-style separator header (XUL `<vbox class="zao-section-header-row"><hr/><label class="separator-label">Backup & Restore</label></vbox>`), a description, and Export / Import… buttons. **Export** copies the current rules-pref JSON to the clipboard; **Import…** opens a file picker, validates, and `writeRulesPref()`s the imported array (the open editor refreshes via its own pref observer). |
-| `teardownRulesPrefObserver()` | Removes the rules-pref observer registered inside `buildRulesEditor`. Called from `prefs-ui.mjs`'s `teardownSettingsObserver` on window unload to prevent observer leaks. |
+| `buildSkipDomainsEditor()` | Returns a `<div class="zao-skip-editor">` pill-row editor for the skip-domains list. Reads/writes `extensions.zen-auto-organize.skip-domains-json` directly. Refreshes via its own pref observer when the pref changes externally (e.g. via Backup & Restore import or the tab right-click "Skip" submenu entry). |
+| `buildBackupRestoreSection()` | Returns a `<div class="zao-backup-section">` containing Export / Import… buttons (the section header + description come from Sine's native separator declared in preferences.json, NOT from this widget). **Export** triggers a JSON file download named `wand-backup-<N>groups-<YYYYMMDD-HHmmss>.json` (with clipboard-copy fallback if download fails). **Import…** opens a file picker, validates, and writes both prefs. Accepts a `{ rules, skipDomains }` object or a legacy bare rules array for back-compat. |
+| `teardownRulesPrefObserver()` / `teardownSkipPrefObserver()` | Remove the pref observers registered inside the editor builders. Called from `prefs-ui.mjs`'s `teardownSettingsObserver` on window unload to prevent observer leaks. |
 
 ## DOM structure
 

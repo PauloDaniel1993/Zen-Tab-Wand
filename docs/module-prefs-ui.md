@@ -25,7 +25,7 @@ Sine's `loadPrefs()` is async — the dialog element is appended to DOM BEFORE i
 
 In order, after the rules editor is appended:
 
-1. **buildRulesEditor + buildBackupRestoreSection** — the rules pill table is inserted right after the Group Rules separator; the Backup & Restore section follows it as a sibling. The Backup section's header uses the same XUL `<vbox class="zao-section-header-row"><hr/><label class="separator-label">…</label></vbox>` markup Sine uses for its native sections, so chrome styling treats them identically.
+1. **buildRulesEditor + buildSkipDomainsEditor + buildBackupRestoreSection** — three custom blocks inserted as siblings of their respective Sine separators (Group Rules / Skip Domains / Backup & Restore) declared in `preferences.json`. `findSeparatorContainer(dialog, "Group Rules")` locates the separator container, then `insertAfter()` drops our content as its next sibling. All three sections inherit Sine's native separator styling.
 2. **tagSeparatorContainers** — adds `.zao-section-header-row` to the parent `<vbox>` of each `.separator-label`. Tagging is consistent across our injected header and Sine's native ones, even though we don't currently style on it.
 3. **injectSectionDescriptions** — adds a `.zao-pref-description` paragraph as a sibling of each separator container, sourced from a constant list in this module. Idempotent (skips if a description already follows).
 4. **setupEnginePrefObserver** — installs an `nsIPrefBranch.addObserver` on `extensions.zen-auto-organize.ai-engine`. On change, re-runs the conditional-fields pass.
@@ -39,7 +39,7 @@ Refetched on every dialog open with a `?t=<timestamp>` cache-buster, so iterativ
 
 ## Dialog re-open refresh
 
-Sine reuses the same `<dialog>` element across open/close cycles. Our injected widget persists in DOM. When the dialog opens, we want the widget to reflect any pref changes that happened while it was closed (e.g. via the TabGrouped hook).
+Sine reuses the same `<dialog>` element across open/close cycles. Our injected widget persists in DOM. When the dialog opens, we want the widget to reflect any pref changes that happened while it was closed (e.g. via the tab right-click "Add to Rule…" submenu or an AI Pass 2 rule-grow).
 
 Two refresh paths converge here:
 1. **Pref observer in widget.mjs** — fires immediately if the rules pref changes while the dialog is open.

@@ -24,6 +24,12 @@ After install, a wand icon appears in your toolbar's workspace separator. Right-
 3. Click the **wand button** in the toolbar. Your matching tabs are sorted instantly.
 4. (Optional) Pick an **AI engine** for tabs the rules don't cover — see below.
 
+## Growing rules from the tab right-click
+
+Right-click any tab → **Add "host" to Rule…** — a submenu pops up listing every current rule. Pick one and the tab's hostname is appended to that rule's domain list. Rules already containing this hostname are listed with a ✓ and disabled. The bottom of the submenu also has a **Skip** entry that adds the hostname to the Skip Domains list.
+
+The tab doesn't move — only the rule grows. Click the wand afterwards to actually sort tabs based on the new rule.
+
 ## AI engines
 
 | Engine | What it does | Setup |
@@ -48,8 +54,17 @@ For Ollama, the default model is `qwen2.5:1.5b` (~1 GB, runs on most GPUs). If y
 
 ## Other settings
 
+- **Skip Domains** — a list of hostnames the wand should never touch. Tabs matching any pattern get ejected from any group and parked at the top of the workspace on every click. Useful for tabs you want to always keep visible and ungrouped.
+- **Strict rule enforcement** — when on, tabs sitting inside a group whose rule doesn't list their hostname get ejected to the top on every wand click. Off by default.
 - **Minimal style** — strips the colored backgrounds from groups for a flatter look.
 - **Keep Ollama model warm** — preloads the model at browser startup and keeps it in VRAM between clicks. Faster, but uses VRAM continuously.
+
+## Backup & Restore
+
+Inside the settings panel under **Backup & Restore**:
+
+- **Export** downloads your rules + skip-domains as a JSON file named like `wand-backup-6groups-20260519-223045.json` (mod prefix + rule count + UTC timestamp).
+- **Import…** replaces both lists from a JSON file you pick. Accepts either the current `{ "rules": […], "skipDomains": […] }` shape or a legacy bare rules array.
 
 ## Privacy
 

@@ -28,7 +28,6 @@ import {
 } from "./rules.mjs";
 import { getTabTitle } from "./tabs.mjs";
 import { findExistingGroup, expandIfCollapsed, applyGroupColor, findSafeInsertAnchor } from "./groups.mjs";
-import { setTabGroupedHookSuppressed } from "./browser-hooks.mjs";
 import { showToast } from "./ui-toast.mjs";
 
 // ─── Engine loaders (lazy + cached for the lifetime of the window) ───────────
@@ -341,13 +340,6 @@ export const applyPass2 = (pass2Result, workspaceId, rules) => {
     rules.map((r) => r.color).filter((c) => typeof c === "string" && c.length > 0)
   );
 
-  // gBrowser.moveTabToExistingGroup and gBrowser.addTabGroup both fire TabGrouped
-  // events. Without suppressing the hook, AI's "transient" mode is silently
-  // overridden — the hook adds rules anyway. The hook stays suppressed for the
-  // duration of this synchronous apply pass.
-  setTabGroupedHookSuppressed(true);
-  try {
-
   // 1. Move tabs into existing rule-matched groups.
   for (const a of pass2Result.assignedToExisting) {
     const groupEl = findExistingGroup(a.groupName, workspaceId);
@@ -403,8 +395,9 @@ export const applyPass2 = (pass2Result, workspaceId, rules) => {
         }
       } else if (newGroupBehavior === "prompt") {
         openZenEditModalForGroup(newGroup);
-        // If the user picks a different color in the modal, our existing
-        // TabGrouped hook will save the rule with that color on modal close.
+        // The user can rename / recolor via Zen's edit modal. They'll need
+        // to use the tab right-click "Add to Rule…" submenu afterwards if
+        // they want the chosen name persisted as a rule.
       }
       // "transient" — group exists in sidebar (with color) but we don't touch rules.
     } catch (e) {
@@ -414,11 +407,6 @@ export const applyPass2 = (pass2Result, workspaceId, rules) => {
 
   // Persist any rule changes (rule grow + new rules).
   if (rulesGrown > 0 || newRulesCreated > 0) writeRulesPref(rules);
-
-  } finally {
-    // Re-enable the TabGrouped hook for any further user-driven mutations.
-    setTabGroupedHookSuppressed(false);
-  }
 
   return { movedToExisting, rulesGrown, newGroupsCreated, newRulesCreated };
 };

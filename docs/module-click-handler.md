@@ -13,31 +13,43 @@ The function the toolbar button invokes. Sequences all the passes.
 ```
 1.  wiggleButton()                    — 600ms wand animation for feedback
 2.  consolidateDuplicateGroups(ws)    — merge same-named groups
-3.  loadRules()                       — pref → file → defaults
-4.  dissolveStaleGroups(ws, rules)    — eject tabs from non-rule groups
+3.  loadRules() + readSkipDomainsPref()— pref → file → defaults; + skip-domain patterns
+4.  dissolveStaleGroups(ws, rules)    — ungroup tabs from non-rule groups,
+                                        move to top of workspace (via gBrowser.ungroupTab)
 5.  getEligibleTabs()                 — fresh enumeration after #4
-6.  runPass1(tabs, rules)             — plan moves
-7.  console.groupCollapsed(...)       — dry-run logging
-8.  applyPass1(byGroup, ws, rules)    — execute moves
-9.  getAIEngine() === "off" ? skip Pass 2 : continue
-10. setButtonThinking(true)           — start wand pulse animation
-11. runPass2()                        — branches on engine:
+6.  skip-domain parking               — tabs matching the skip list are moved
+                                        to the top via moveTabsToTop, excluded
+                                        from the rest of the pipeline
+7.  runPass1(tabs, rules)             — plan moves for non-skipped tabs
+8.  console.groupCollapsed(...)       — dry-run logging
+9.  applyPass1(byGroup, ws, rules)    — execute moves (skipped in fresh-like AI modes)
+10. strict-rule ejection              — if strict-rules pref is on, eject any
+                                        unmatched tab still in a rule-named group
+                                        via moveTabsToTop
+11. getAIEngine() === "off" ? skip Pass 2 : continue
+12. setButtonThinking(true)           — start wand pulse animation
+13. runPass2()                        — branches on engine:
        "local"  → ai.mjs runPass2()       (existing groups only)
        "ollama" → ollama.mjs runPass2Ollama() OR runPass2OllamaFresh()
                   depending on ai-new-group-behavior
-12. Plan Mode gate (if applicable):
+14. Plan Mode gate (if applicable):
        getAINewGroupBehavior() in ("identify-only", "auto-add",
        "always-add" with new groups) → showPreviewModal(plan)
        Modal returns the user-edited plan. Apply waits for confirmation.
-13. applyPass2(plan, ws, rules)       — execute moves; create new groups;
+15. applyPass2(plan, ws, rules)       — execute moves; create new groups;
                                         optionally grow rules array
-14. (fresh-categories mode) dissolve any group with zero tabs after rebuild
-15. moveUngroupedToTop(ws)            — anything left ungrouped goes to top
-16. syncAllGroupColors(ws, rules)     — push colors onto ALL rule-matched groups
-17. logNestingDiagnostic()            — warn if any tab-group ended up nested
+16. (fresh-categories mode) dissolve any group with zero tabs after rebuild
+17. moveUngroupedToTop(ws)            — anything left ungrouped goes to top
+18. syncAllGroupColors(ws, rules)     — push colors onto ALL rule-matched groups
+19. logNestingDiagnostic()            — warn if any tab-group ended up nested
                                         (a Zen DOM-API edge case)
-18. setButtonThinking(false)          — restore wand
-19. console.groupEnd()
+20. gZenWorkspaces.updateTabsContainers() + read gBrowser.tabs.length
+                                      — tab-list settle: rebuild Firefox's _tPos
+                                        cache so the first drag attempt on a
+                                        sorted tab works (avoids Windows
+                                        "sticky-drag" symptom).
+21. setButtonThinking(false)          — restore wand
+22. console.groupEnd()
 ```
 
 ## Why dissolve runs BEFORE Pass 1

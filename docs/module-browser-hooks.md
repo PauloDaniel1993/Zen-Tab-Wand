@@ -1,40 +1,41 @@
-# `modules/browser-hooks.mjs` — Zen tab-group event hooks
+# `modules/browser-hooks.mjs` — Tab context menu + restore-color hook + pref observer
 
-Hooks Zen's native `TabGrouped` and `TabGroupCreate` events so manual organization auto-grows the rules pref.
+Three pieces of browser-context wiring:
+
+1. **Tab right-click submenu** — `Add "<hostname>" to Rule…` injected into the tab context menu.
+2. **TabGroupCreate listener** — re-applies rule colors when Zen restores groups on startup.
+3. **`minimal-style` pref observer** — re-syncs group styling immediately when the user toggles the pref.
 
 ## Exports
 
 | Name | Notes |
 |---|---|
-| `setupTabGroupedHook()` | Auto-add hostnames to rules when tabs join groups. |
-| `setupTabGroupCreateHook()` | Re-apply rule colors when Zen restores groups on startup. |
+| `setupTabContextMenu()` | Installs the right-click submenu. Idempotent — guarded with a `_zaoContextMenuInstalled` expando. |
+| `teardownTabContextMenu()` | Removes the submenu + its listeners. Called from `auto-organize.uc.mjs`'s `cleanup()`. |
+| `setupTabGroupCreateHook()` | Listens on `gBrowser.tabContainer` for `TabGroupCreate` to re-apply per-rule colors. |
+| `setupMinimalStylePrefObserver()` / `teardownMinimalStylePrefObserver()` | `Services.prefs.addObserver` for live minimal-style toggling across all workspaces. |
 
-## TabGrouped flow
+## Tab context submenu
 
-When the user picks "Add Tab to Group → X" from Zen's native context menu (or drags a tab into a group), Zen dispatches a `TabGrouped` event:
+When the user opens the tab right-click menu on any tab, our parent `<menu>` element shows:
 
-- `event.target` is the **tab-group element** (NOT the tab — quirk of Zen's implementation, see `tab.js #updateOnTabGrouped` in the Zen source).
-- `event.detail` is the tab that was grouped.
+```
+Add "<hostname>" to Rule…   ← parent label, dynamically updated
+  ├── Calendar                ← every current rule as a child <menuitem>
+  ├── Dev
+  ├── ✓ Google Utils          ← rules already containing this hostname: ✓ + disabled
+  ├── Shopping
+  ├── ──────────────          ← <menuseparator>
+  └── Skip                    ← or ✓ Skip if already in the skip list
+```
 
-The handler:
+Click a rule → `applyToRule(tab, ruleName, currentGroupEl)` appends the hostname to that rule's `domains[]`. Click Skip → the hostname is appended to `extensions.zen-auto-organize.skip-domains-json`. The tab is NOT moved — only the persisted lists grow. The user runs the wand afterwards to actually sort.
 
-1. If the group has a real label → call `applyToRule(tab, label, group)` directly.
-2. If the label is empty / U+200B (the "New Group" case where Zen prompts the user to name it):
-   - Listen for `popuphidden` on document. Any way the create-tab-group modal closes (Done click, Escape, click-outside, etc.) fires this event.
-   - When it fires, defer one tick (`setTimeout(0)`) so the swatch-radio's `change` handler can flush the user's color pick into `group.color` before we read it.
-   - Group state (label set + still connected) gates the actual commit — popuphidden fires for unrelated popups too, but they don't match.
-   - Set a long abandon timer (`NEW_GROUP_ABANDON_MS`, 5 minutes) so the document listener doesn't leak if the modal is never resolved.
-3. `applyToRule` either appends the hostname to an existing rule or creates a brand-new rule from the user-chosen name (inheriting the color the user picked in Zen's modal if it's a named palette color).
+The submenu rebuilds on every `popupshowing` so rule edits made in the settings UI are reflected immediately. The parent is hidden when the right-clicked tab has no hostname (e.g. `about:blank`).
 
-## Why popuphidden (not TabGroupCreateDone or debounce)
+### Why not a passive event listener?
 
-The history of this signal choice, since it tripped us up a few times:
-
-1. **Debounced TabGroupUpdate** — first attempt. `tabgroup-menu.js` sets `activeGroup.label = value` on every keystroke, so TabGroupUpdate fires per character. Debouncing for 1.5s after the last update was supposed to wait until the user finished typing. **Bug**: if the user typed the name first and paused for >1.5s while reading the color palette before picking, the debounce fired with the still-default color. Removed.
-
-2. **TabGroupCreateDone only** — second attempt. Zen dispatches `TabGroupCreateDone` from `on_popuphidden` when `#keepNewlyCreatedGroup` is true. Works for the Done button. **Bug**: click-outside also resolves the modal (Zen keeps the group), but if the user picked a color and clicked outside in the same gesture, `group.color` hadn't flushed yet when our handler read it. Replaced.
-
-3. **popuphidden + setTimeout(0)** — current. Catches every dismissal path uniformly. The microtask defer guarantees pending event handlers (swatch change, etc.) have committed before we read `group.color`.
+A previous design listened to Zen's `TabGrouped` event globally and auto-added the hostname whenever a tab joined a group. It had to be deleted because Zen dispatches `TabGrouped` asynchronously and for non-user reasons: after we explicitly ungroup a tab via `gBrowser.ungroupTab`, Zen's session bookkeeping fires a stale `TabGrouped` to re-attach it. Distinguishing genuine user actions from these re-attaches turned out to be impossible from event metadata alone. The explicit submenu replaces all that with one click of explicit user intent — no events, no race windows, no markers.
 
 ## TabGroupCreate flow
 
@@ -44,4 +45,10 @@ Fires when any tab-group element connects to the DOM — including ALL groups re
 2. Looks up a matching rule.
 3. If the rule has a `color`, defers one tick (so Zen's own color setup finishes) then calls `applyGroupColor(group, rule.color)`.
 
-This is why custom rule colors survive across Zen restarts even though Zen's session storage might forget them.
+This is why custom rule colors survive across Zen restarts even when Zen's session storage forgets them.
+
+## minimal-style pref observer
+
+`Services.prefs.addObserver` attaches to the global prefs branch and would survive window close (leaking a window reference) if we didn't tear it down. The observer is installed in `setupMinimalStylePrefObserver` and removed in `teardownMinimalStylePrefObserver`, wired into the entry script's `cleanup()`.
+
+On change, it calls `syncAllGroupColors(null, rules)` (null = walk every workspace, not just the active one) so the minimal-style change is visible everywhere immediately.

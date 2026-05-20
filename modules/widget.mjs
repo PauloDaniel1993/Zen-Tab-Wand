@@ -1,7 +1,7 @@
 // Zen Tab Wand — settings rules editor widget.
 // Builds the pill table (Category | Domains) with +/- buttons, color swatch per row,
 // hex input, and live persistence to the rules pref. Also wires a pref observer so
-// external changes (TabGrouped hook) refresh the table in real time.
+// external changes (right-click "Add to Rule…" submenu, AI Pass 2, Import) refresh the table in real time.
 
 import { CONFIG, LOG, h } from "./config.mjs";
 import { readRulesPref, writeRulesPref, readSkipDomainsPref, writeSkipDomainsPref } from "./rules.mjs";
@@ -190,7 +190,7 @@ export const buildRulesEditor = (rules) => {
   };
 
   // Refresh widget state from the pref. Called by both the pref observer and the
-  // dialog-open watcher to pick up external changes (e.g. from the TabGrouped hook).
+  // dialog-open watcher to pick up external changes (e.g. via the tab right-click submenu, AI Pass 2 grow, or Backup Import).
   const refreshFromPref = (reason) => {
     if (!container.isConnected) return;
     const fresh = readRulesPref();
@@ -377,22 +377,51 @@ export const buildBackupRestoreSection = () => {
 
   const exportBtn = h("button", { class: "zao-backup-btn", text: "Export" });
   exportBtn.type = "button";
-  exportBtn.title = "Copy current rules + skip-domains as JSON to the clipboard";
+  exportBtn.title = "Download current rules + skip-domains as a JSON file";
   exportBtn.addEventListener("click", () => {
     const payload = {
       rules: readRulesPref() || [],
       skipDomains: readSkipDomainsPref() || [],
     };
     const json = JSON.stringify(payload, null, 2);
+    // Filename: wand-backup-<N>groups-YYYYMMDD-HHmmss.json — encodes which
+    // mod produced it, how many rules were saved, and exact-second timestamp.
+    const ts = new Date()
+      .toISOString()
+      .replace(/[-:T]/g, "")
+      .replace(/\..*$/, "")
+      .replace(/^(\d{8})(\d{6})$/, "$1-$2"); // 20260519-223045
+    const filename = `wand-backup-${payload.rules.length}groups-${ts}.json`;
     try {
-      navigator.clipboard.writeText(json);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElementNS("http://www.w3.org/1999/xhtml", "a");
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      document.documentElement.appendChild(a);
+      a.click();
+      a.remove();
+      // Defer revoke so the browser has time to start the download from the
+      // blob URL — revoking immediately can race with Firefox's download
+      // handler on slower machines.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       const original = exportBtn.textContent;
-      exportBtn.textContent = "Copied!";
+      exportBtn.textContent = "Downloaded!";
       setTimeout(() => { exportBtn.textContent = original; }, 1200);
+      console.log(`${LOG} exported ${payload.rules.length} rule(s) + ${payload.skipDomains.length} skip-domain(s) to ${filename}`);
     } catch (e) {
-      console.warn(`${LOG} clipboard write failed; logging JSON to console:`, e);
-      console.log(json);
-      alert("Couldn't copy. The JSON has been logged to the Browser Console.");
+      console.warn(`${LOG} download failed; falling back to clipboard:`, e);
+      try {
+        navigator.clipboard.writeText(json);
+        const original = exportBtn.textContent;
+        exportBtn.textContent = "Copied!";
+        setTimeout(() => { exportBtn.textContent = original; }, 1200);
+      } catch (clipErr) {
+        console.error(`${LOG} clipboard fallback also failed:`, clipErr);
+        console.log(json);
+        alert("Couldn't download or copy. The JSON has been logged to the Browser Console.");
+      }
     }
   });
   bar.appendChild(exportBtn);

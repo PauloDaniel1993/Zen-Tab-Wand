@@ -7,7 +7,7 @@ A Zen Browser Sine mod that auto-organizes tabs into groups using two passes:
    - **Local** (`modules/ai.mjs`): Firefox's bundled `Mozilla/smart-tab-embedding` model. Existing-group classification only; no new-group invention.
    - **Ollama** (`modules/ollama.mjs`): HTTP client to a local Ollama daemon at `localhost:11434`. Does both existing-group classification and AI-invented new-group clustering, with a merge pass and an optional interactive Plan Mode modal for user review.
 
-The mod also auto-records new rules when the user uses Zen's native "Add Tab to Group" submenu, so the rules table grows organically as you organize manually.
+Rules grow via three explicit paths: the settings UI rule editor, the tab right-click "Add to Rule…" submenu (browser-hooks.mjs's `setupTabContextMenu`), and AI Pass 2 when it decides to grow rules.
 
 ## File map
 
@@ -34,7 +34,7 @@ See [architecture.md](architecture.md) for the full picture; the short version:
 
 - **Settings widget** (about:preferences) lets the user define rules + colors.
 - **Tidy button** (browser.xhtml toolbar) triggers Pass 1, applies it, and runs cleanup passes.
-- **Event hooks** (browser.xhtml) listen to Zen's native tab-group actions and auto-extend the rules pref.
+- **Tab right-click submenu** (browser.xhtml) lets the user explicitly add a tab's hostname to any rule or to the skip-domains list.
 
 ## Per-module docs
 
@@ -49,7 +49,7 @@ See [architecture.md](architecture.md) for the full picture; the short version:
 - [module-ollama.md](module-ollama.md) — Pass 2 Ollama engine (transport + prompts + orchestrators)
 - [module-click-handler.md](module-click-handler.md) — tidy click orchestrator
 - [module-browser-ui.md](module-browser-ui.md) — wand button, command, workspace hooks
-- [module-browser-hooks.md](module-browser-hooks.md) — TabGrouped / TabGroupCreate / minimal-style observer
+- [module-browser-hooks.md](module-browser-hooks.md) — tab right-click "Add to Rule" submenu + TabGroupCreate color re-apply + minimal-style observer
 - [module-prefs-ui.md](module-prefs-ui.md) — Sine dialog detection, widget injection, conditional fields
 - [module-widget.md](module-widget.md) — rules editor table + Backup & Restore
 - [module-color-picker.md](module-color-picker.md) — color popover + palette fetch

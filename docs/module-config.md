@@ -7,6 +7,7 @@ Holds every magic value the rest of the codebase references. No runtime state, n
 | Name | Type | Purpose |
 |---|---|---|
 | `LOG` | string | Prefix for all console messages (`"[ZenTabWand]"`) |
+| `BUILD_VERSION` | string | Internal build tag (e.g. `"1.0.0+cleanup.12"`), distinct from theme.json's user-facing version. Bumped on each push that changes runtime code so the Browser Console reveals which build is loaded. |
 | `CONFIG` | object | Pref names, IDs, polling intervals, chrome:// URLs, AI-tuning constants |
 | `ZEN_UNSET_LABEL` | string | U+200B placeholder Zen uses for new unnamed tab-groups |
 | `isUnsetLabel(label)` | fn | Detects an unnamed group |
@@ -28,7 +29,9 @@ Holds every magic value the rest of the codebase references. No runtime state, n
 
 ```js
 RULES_PREF                    // string pref holding the JSON-encoded rules array
+SKIP_DOMAINS_PREF             // string pref holding the JSON-encoded skip-domains array
 MINIMAL_STYLE_PREF            // bool pref for the address-bar styling toggle
+STRICT_RULES_PREF             // bool pref — eject unmatched tabs from rule-named groups
 AI_ENGINE_PREF                // string: "" | "local" | "ollama"
 AI_EXISTING_BEHAVIOR_PREF     // "always-add" | "transient"
 AI_NEW_GROUP_BEHAVIOR_PREF    // "auto-add" | "transient" | "prompt" | "fresh-categories" | "identify-only"

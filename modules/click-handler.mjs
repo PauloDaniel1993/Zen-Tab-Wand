@@ -18,7 +18,6 @@ import { runPass1, applyPass1, matchesDomain } from "./pass1.mjs";
 import { runPass2, applyPass2 } from "./ai.mjs";
 import { checkOllamaReady, reportOllamaError, normalizeOllamaHost, runPass2Ollama, runPass2OllamaFresh, classifyExistingGroupsBatch } from "./ollama.mjs";
 import { showPreviewModal } from "./preview-modal.mjs";
-import { pushTabGroupedHookSuppression, popTabGroupedHookSuppression } from "./browser-hooks.mjs";
 
 // Module-version stamp so we can confirm the latest copy is loaded in the running window.
 // If you don't see this in the Browser Console after restart, ES module cache is stale.
@@ -77,15 +76,7 @@ export const handleOrganizeClick = async () => {
     return;
   }
 
-  // Suppress the TabGrouped auto-add hook for the ENTIRE click. Any programmatic
-  // tab movement that happens during the click (Pass 1 moves, dedupe, strict-mode
-  // ejection, skip-domain parking, AI Pass 2, etc.) should be invisible to the
-  // hook — only USER-initiated grouping (drags, "Add to Group" menu) should grow
-  // rules. The push/pop counter survives nested suppressions inside applyPass1 /
-  // applyPass2 / consolidateDuplicateGroups.
-  pushTabGroupedHookSuppression();
-  console.log(`${LOG} click START — build ${BUILD_VERSION} — suppression pushed`);
-  try {
+  console.log(`${LOG} click START — build ${BUILD_VERSION}`);
 
   // 1. Merge any duplicate-name groups before lookups assume uniqueness.
   const consolidation = consolidateDuplicateGroups(workspaceId);
@@ -204,32 +195,16 @@ export const handleOrganizeClick = async () => {
       // the workspace; if AI Pass 2 runs next, it gets a crack at re-placing
       // them. Strict mode never fires in fresh/identify-only modes — those
       // bypass Pass 1 entirely.
-      const strictOn = isStrictRulesEnforced();
-      console.log(`${LOG} Strict: pref=${strictOn}, unmatched-total=${unmatched.length}`);
-      if (strictOn) {
-        const candidatesInGroups = unmatched.filter((t) => t.currentGroup);
-        const candidatesConnected = candidatesInGroups.filter((t) => t._tab?.isConnected);
-        console.log(`${LOG} Strict: candidates in groups=${candidatesInGroups.length}, connected=${candidatesConnected.length}`);
-        if (candidatesInGroups.length > 0) {
-          console.table(candidatesInGroups.map((t) => ({
-            hostname: t.hostname,
-            currentGroup: t.currentGroup,
-            tabConnected: !!t._tab?.isConnected,
-            tabHasParent: !!t._tab?.parentElement,
-            closestGroupLabel: t._tab?.closest?.("tab-group")?.getAttribute?.("label") ?? "(none)",
-          })));
-        }
-        if (candidatesConnected.length > 0) {
-          const ejected = moveTabsToTop(candidatesConnected.map((t) => t._tab), workspaceId);
-          console.log(`${LOG} Strict: ejected ${ejected} of ${candidatesConnected.length} candidate(s) from rule groups`);
+      if (isStrictRulesEnforced()) {
+        const candidates = unmatched.filter((t) => t.currentGroup && t._tab?.isConnected);
+        if (candidates.length > 0) {
+          const ejected = moveTabsToTop(candidates.map((t) => t._tab), workspaceId);
           if (ejected > 0) {
-            // The unmatched array's items now have currentGroup === null
-            // (their on-DOM state changed). Update the planning shape so
-            // downstream Pass 2 / diagnostics see the new reality.
-            for (const t of candidatesConnected) t.currentGroup = null;
+            console.log(`${LOG} Strict: ejected ${ejected} unmatched tab(s) from rule groups`);
+            // Update planning shape so downstream Pass 2 / diagnostics see
+            // the new ungrouped reality.
+            for (const t of candidates) t.currentGroup = null;
           }
-        } else if (candidatesInGroups.length === 0) {
-          console.log(`${LOG} Strict: no candidates — every unmatched tab is already ungrouped`);
         }
       }
     } else {
@@ -442,8 +417,6 @@ export const handleOrganizeClick = async () => {
           const parent = inner.parentElement?.closest("tab-group");
           console.warn(`  nested: "${inner.getAttribute("label") || "(unlabeled)"}" inside "${parent?.getAttribute("label") || "(unlabeled)"}"`);
         }
-      } else {
-        console.log(`${LOG} post-tidy structure: ${allGroups} tab-group(s), 0 nested (flat ✓)`);
       }
     } catch (e) {
       console.error(`${LOG} nesting diagnostic failed:`, e);
@@ -467,20 +440,5 @@ export const handleOrganizeClick = async () => {
     console.groupEnd();
   }
 
-  } finally {
-    // Defer the pop. Zen's session bookkeeping fires a stale TabGrouped event
-    // asynchronously after our click finishes, trying to re-attach tabs we
-    // explicitly ungrouped via gBrowser.ungroupTab. If we pop suppression
-    // synchronously, that re-attach event slips through and grows rules.
-    // Holding suppression open for a couple of seconds covers Zen's settling
-    // window. The trade-off: a user who drag-and-drops a tab into a group
-    // within 2 seconds of clicking the wand won't get that auto-added to
-    // rules — acceptable, given how unusual that interleaving is.
-    const SUPPRESSION_TAIL_MS = 2000;
-    setTimeout(() => {
-      popTabGroupedHookSuppression();
-      console.log(`${LOG} click END — suppression popped (delayed ${SUPPRESSION_TAIL_MS}ms)`);
-    }, SUPPRESSION_TAIL_MS);
-    console.log(`${LOG} click END — suppression hold for ${SUPPRESSION_TAIL_MS}ms before pop`);
-  }
+  console.log(`${LOG} click END`);
 };

@@ -17,7 +17,7 @@ The same `auto-organize.uc.mjs` is loaded into two different documents by Sine:
       ├── setupCommand()              ──▶ browser-ui.mjs
       ├── addButtonToAllSeparators()  ──▶ browser-ui.mjs
       ├── setupWorkspaceHooks()       ──▶ browser-ui.mjs
-      ├── setupTabGroupedHook()       ──▶ browser-hooks.mjs
+      ├── setupTabContextMenu()       ──▶ browser-hooks.mjs  ("Add to Rule…" submenu)
       ├── setupTabGroupCreateHook()   ──▶ browser-hooks.mjs
       ├── setupMinimalStylePrefObserver() ──▶ browser-hooks.mjs
       ├── syncAllGroupColors()        ──▶ groups.mjs
@@ -96,29 +96,39 @@ When the user clicks the wand button, `handleOrganizeClick` runs:
 
 1. **wiggle** — CSS animation on the wand for feedback
 2. **consolidate duplicates** (groups.mjs) — merge multiple tab-groups with the same label into the first
-3. **load rules** (rules.mjs) — pref > rules.json > defaults
-4. **dissolve stale groups** (groups.mjs) — any tab-group whose name isn't in the current rule set gets its tabs ejected to the top of the workspace; the empty group is removed
+3. **load rules + skip-domains** (rules.mjs) — pref > rules.json > defaults; separate `readSkipDomainsPref()` for the skip list
+4. **dissolve stale groups** (groups.mjs) — any tab-group whose name isn't in the current rule set gets its tabs ungrouped via `gBrowser.ungroupTab` then DOM-moved to the top of the workspace; the empty group is removed
 5. **enumerate eligible tabs** (tabs.mjs) — non-pinned, non-empty, in the current workspace
-6. **runPass1** (pass1.mjs) — assign each tab a target group via first-match-wins
-7. **applyPass1** (pass1.mjs) — move tabs into their target groups; create new groups when needed
+6. **skip-domain parking** — any tab whose hostname matches a pattern in the skip list is ungrouped + parked at the top via `moveTabsToTop`, then excluded from the rest of the pipeline
+7. **runPass1** (pass1.mjs) — assign each remaining tab a target group via first-match-wins
+8. **applyPass1** (pass1.mjs) — move tabs into their target groups; create new groups when needed (skipped in fresh-like AI modes since Pass 2 will reclassify everything)
+9. **strict-rule ejection** (opt-in via the `strict-rules` pref) — after `applyPass1`, any unmatched tab that's still inside a rule-named group is ungrouped + parked at the top via `moveTabsToTop`
 
 Then, if the AI engine is set to anything other than `"off"`:
 
-8. **setButtonThinking(true)** — start the wand's pulse animation while AI runs
-9. **runPass2** (ai.mjs **or** ollama.mjs) — depends on `ai-engine` pref:
-   - `"local"` → existing-group classification only, max-cosine over per-tab embeddings
-   - `"ollama"` → unified classify-and-cluster; can also invent new groups
-10. **Plan Mode gate** — if `ai-new-group-behavior` is `"identify-only"` OR (`"auto-add"` / `"always-add"` with new groups to confirm), `showPreviewModal` (preview-modal.mjs) opens with the plan; the user toggles which groups to keep and can re-assign-to-existing / re-assign-to-new in place. Apply is gated on the user's confirmation
-11. **applyPass2** — execute the (possibly user-edited) plan: move tabs into existing groups, create new ones, optionally grow the rules array
-12. **fresh-categories cleanup** — if mode is `"fresh-categories"`, dissolve any group that has zero tabs after the rebuild
-13. **moveUngroupedToTop** (groups.mjs) — anything still ungrouped is shoved to the top
-14. **syncAllGroupColors** (groups.mjs) — push per-rule colors onto every rule-matched group (catches groups Pass 1 didn't touch)
-15. **nesting diagnostic** — log a warning if any tab-group is nested inside another (a Zen bug we've hit before)
-16. **setButtonThinking(false)** — restore the wand
+10. **setButtonThinking(true)** — start the wand's pulse animation while AI runs
+11. **runPass2** (ai.mjs **or** ollama.mjs) — depends on `ai-engine` pref:
+    - `"local"` → existing-group classification only, max-cosine over per-tab embeddings
+    - `"ollama"` → unified classify-and-cluster; can also invent new groups
+12. **Plan Mode gate** — if `ai-new-group-behavior` is `"identify-only"` OR (`"auto-add"` / `"always-add"` with new groups to confirm), `showPreviewModal` (preview-modal.mjs) opens with the plan; the user toggles which groups to keep and can re-assign-to-existing / re-assign-to-new in place. Apply is gated on the user's confirmation
+13. **applyPass2** — execute the (possibly user-edited) plan: move tabs into existing groups, create new ones, optionally grow the rules array
+14. **fresh-categories cleanup** — if mode is `"fresh-categories"`, dissolve any group that has zero tabs after the rebuild
+
+Finally for every click:
+
+15. **moveUngroupedToTop** (groups.mjs) — anything still ungrouped is shoved to the top
+16. **syncAllGroupColors** (groups.mjs) — push per-rule colors onto every rule-matched group (catches groups Pass 1 didn't touch)
+17. **nesting diagnostic** — log a warning if any tab-group ended up nested inside another (a Zen DOM-API edge case)
+18. **tab-list settle** — call `gZenWorkspaces.updateTabsContainers()` and read `gBrowser.tabs.length` to force Firefox to rebuild its `_tPos` cache. Without this, dragging a sorted tab requires two attempts on Windows because the first drag uses the stale tab-position cache (sticky-drag symptom)
+19. **setButtonThinking(false)** — restore the wand
 
 ## State persistence
 
-- **Rules** live in the `extensions.zen-auto-organize.rules-json` pref (a JSON-encoded array). The pref-key prefix is `zen-auto-organize.*` (legacy; preserved across the rename to `zen-tab-wand` so existing users keep their data). Read/written by `rules.mjs`. Observed by the widget so external changes (e.g. context-menu auto-add) refresh the table live.
-- **Minimal-style toggle** lives in `extensions.zen-auto-organize.minimal-style`. Observed by `setupMinimalStylePrefObserver` (browser-hooks.mjs) so the style flips live across all workspaces.
+All prefs use the `extensions.zen-auto-organize.*` prefix (legacy; preserved across the rename to `zen-tab-wand` so existing users keep their data).
+
+- **Rules** live in `extensions.zen-auto-organize.rules-json` (a JSON-encoded array). Read/written by `rules.mjs`. Observed by the widget so external changes (right-click "Add to Rule" submenu, Backup & Restore import, AI Pass 2) refresh the table live.
+- **Skip domains** live in `extensions.zen-auto-organize.skip-domains-json` (a JSON-encoded array of hostname patterns). Read by click-handler step 6 to park matching tabs at the top of the workspace.
+- **Strict rule enforcement** lives in `extensions.zen-auto-organize.strict-rules` (boolean, default false). When true, click-handler step 9 ejects any tab whose rule doesn't list its hostname.
+- **Minimal style** lives in `extensions.zen-auto-organize.minimal-style`. Observed by `setupMinimalStylePrefObserver` (browser-hooks.mjs) so the style flips live across all workspaces.
 - **AI engine + behaviors** live in `extensions.zen-auto-organize.ai-engine` (`"" | "local" | "ollama"`), `.ai-existing-behavior`, `.ai-new-group-behavior`, `.ai-ollama-host`, `.ai-ollama-model`, `.ai-ollama-warmup`.
 - **Rule colors** are stored inline on each rule (`{ name, domains, color }`). The color is either a Zen palette name (`"blue"`) or a hex string (`"#abc"`).

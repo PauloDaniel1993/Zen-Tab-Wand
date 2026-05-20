@@ -11,6 +11,9 @@ All read/write access to the rules pref + the file fallback. Cleans malformed in
 | `validateRules(data)` | `Rule[]` | For rules.json file content — throws on bad input. |
 | `loadRules()` | async `Rule[]` | Precedence: pref → rules.json file → `DEFAULT_RULES`. |
 | `isMinimalStyle()` | bool | Reads the `minimal-style` pref. |
+| `isStrictRulesEnforced()` | bool | Reads the `strict-rules` pref (default false). When on, click-handler ejects tabs whose hostname isn't listed in their group's rule. |
+| `readSkipDomainsPref()` | `string[]` | Reads the JSON skip-domains pref. Returns `[]` if unset. |
+| `writeSkipDomainsPref(domains)` | void | Serializes and stores the skip-domains list. |
 | `getAIEngine()` | `"off" \| "local" \| "ollama"` | Normalized read of the engine pref (unknown / empty → `"off"`). |
 | `getOllamaHost()` | string | Ollama base URL, falls back to default. |
 | `getOllamaModel()` | string | Ollama model name, falls back to default. |
@@ -36,4 +39,4 @@ Sine's preference system only supports single-line `string`/`checkbox`/`dropdown
 
 ## Pref change → UI refresh
 
-External writes (from `browser-hooks.mjs` when the user organizes manually) trigger `nsPref:changed`. `widget.mjs` registers an `nsIPrefBranch.addObserver` and refreshes the visible table.
+External writes — from the tab right-click "Add to Rule…" submenu (browser-hooks.mjs), the Backup & Restore import (widget.mjs), or AI Pass 2 (ai.mjs / ollama.mjs) — trigger `nsPref:changed`. The settings widget registers an `nsIPrefBranch.addObserver` and refreshes the visible table on every change.

@@ -2,9 +2,8 @@
 // color application (named via Zen API; hex via CSS variable overrides), and the
 // sort-ungrouped-to-top pass.
 
-import { CONFIG, LOG, TAB_EJECTION_GRACE_MS, isZenColorName, isValidHex } from "./config.mjs";
+import { CONFIG, LOG, isZenColorName, isValidHex } from "./config.mjs";
 import { isMinimalStyle } from "./rules.mjs";
-import { setTabGroupedHookSuppressed, markTabAsEjected } from "./browser-hooks.mjs";
 
 // Find an existing tab-group with the given label in the given workspace.
 // Tries direct attribute match first (which doesn't always work because Zen doesn't
@@ -146,28 +145,18 @@ export const moveTabsToTop = (tabs, workspaceId) => {
     console.log(`${LOG} moveTabsToTop: tabsContainer not found on activeWorkspaceElement`);
     return 0;
   }
-  // gBrowser.ungroupTab is Firefox's real "remove from group" API (see
-  // mozilla-central tabbrowser tabgroup.js). Just reparenting the DOM via
-  // insertBefore leaves Zen's tab-group bookkeeping intact — Zen then fires a
-  // TabGrouped event asynchronously to re-attach the tab, which both undoes
-  // our move AND grows the rule via the auto-add hook (because the async
-  // event escapes our synchronous suppression window).
+  // gBrowser.ungroupTab is Firefox's "remove tab from group" API. Without it,
+  // raw `tabsContainer.insertBefore` leaves Zen's tab-group bookkeeping
+  // intact and Zen re-attaches the tab asynchronously. Call it before the
+  // DOM move so both layers stay in sync.
   const ungroupApi = typeof gBrowser?.ungroupTab === "function" ? gBrowser.ungroupTab.bind(gBrowser) : null;
-  if (!ungroupApi) {
-    console.warn(`${LOG} moveTabsToTop: gBrowser.ungroupTab not available — falling back to DOM-only move (may be silently re-grouped by Zen)`);
-  }
   const topAnchor = tabsContainer.firstChild;
   let moved = 0;
-  let skipped = 0;
-  let ungrouped = 0;
   for (const tab of tabs) {
-    if (!tab?.isConnected) { skipped++; continue; }
+    if (!tab?.isConnected) continue;
     try {
-      // Tell Zen's grouping system the tab is leaving its group BEFORE we
-      // reparent. This emits TabUngrouped (not TabGrouped) so the auto-add
-      // hook stays quiet.
       if (ungroupApi && tab.closest("tab-group")) {
-        try { ungroupApi(tab); ungrouped++; } catch (e) {
+        try { ungroupApi(tab); } catch (e) {
           console.warn(`${LOG} moveTabsToTop: ungroupTab failed for tab, continuing with DOM move:`, e);
         }
       }
@@ -176,18 +165,11 @@ export const moveTabsToTop = (tabs, workspaceId) => {
       } else {
         tabsContainer.insertBefore(tab, tabsContainer.firstChild);
       }
-      // Mark the tab as recently-ejected via the central registry so the
-      // async TabGrouped event Zen fires shortly after (re-attaching the
-      // tab to its old group) is ignored by the auto-add hook.
-      tab._zaoEjectedAt = Date.now();
-      markTabAsEjected(tab);
       moved++;
     } catch (e) {
       console.error(`${LOG} moveTabsToTop: failed:`, e);
     }
   }
-  if (skipped > 0) console.log(`${LOG} moveTabsToTop: skipped ${skipped} disconnected tab(s)`);
-  if (ungrouped > 0) console.log(`${LOG} moveTabsToTop: ungrouped ${ungrouped} tab(s) via gBrowser.ungroupTab before move`);
   return moved;
 };
 
@@ -275,8 +257,7 @@ export const dissolveStaleGroups = (workspaceId, rules) => {
     );
 
     // Tell Zen the tabs are leaving their group via the real API before
-    // DOM-reparenting, so Zen doesn't fire a stale-target TabGrouped after
-    // we've ripped the group out (which would race into the auto-add hook).
+    // DOM-reparenting, so Zen's tab-group bookkeeping stays in sync.
     const ungroupApi = typeof gBrowser?.ungroupTab === "function" ? gBrowser.ungroupTab.bind(gBrowser) : null;
     for (const tab of tabsInGroup) {
       if (!tab.isConnected) continue;
@@ -291,8 +272,6 @@ export const dissolveStaleGroups = (workspaceId, rules) => {
         } else {
           tabsContainer.insertBefore(tab, tabsContainer.firstChild);
         }
-        tab._zaoEjectedAt = Date.now();
-        markTabAsEjected(tab);
         ungrouped++;
       } catch (e) {
         console.error(`${LOG} error ungrouping tab from stale group "${label}":`, e);
@@ -393,47 +372,40 @@ export const consolidateDuplicateGroups = (workspaceId) => {
   let mergedLabels = 0;
   let totalTabsMoved = 0;
 
-  // Suppress the TabGrouped auto-add hook — these are programmatic dedupe
-  // moves, not user-initiated grouping, and we don't want them growing rules.
-  setTabGroupedHookSuppressed(true);
-  try {
-    for (const [label, groupEls] of byLabel) {
-      if (groupEls.length < 2) continue;
+  for (const [label, groupEls] of byLabel) {
+    if (groupEls.length < 2) continue;
 
-      const canonical = groupEls[0];
-      expandIfCollapsed(canonical);
-      let movedThisLabel = 0;
+    const canonical = groupEls[0];
+    expandIfCollapsed(canonical);
+    let movedThisLabel = 0;
 
-      for (let i = 1; i < groupEls.length; i++) {
-        const dup = groupEls[i];
-        if (!dup.isConnected) continue;
+    for (let i = 1; i < groupEls.length; i++) {
+      const dup = groupEls[i];
+      if (!dup.isConnected) continue;
 
-        const dupTabs = Array.from(
-          dup.querySelectorAll(`tab[zen-workspace-id="${workspaceId}"]`)
-        );
-        for (const tab of dupTabs) {
-          if (!tab.isConnected) continue;
-          try {
-            gBrowser.moveTabToExistingGroup(tab, canonical);
-            movedThisLabel++;
-          } catch (e) {
-            console.error(`${LOG} error merging tab into "${label}":`, e);
-          }
-        }
-
-        if (dup.isConnected && !dup.querySelector("tab")) {
-          try { dup.remove(); } catch (e) {
-            console.error(`${LOG} error removing empty duplicate "${label}":`, e);
-          }
+      const dupTabs = Array.from(
+        dup.querySelectorAll(`tab[zen-workspace-id="${workspaceId}"]`)
+      );
+      for (const tab of dupTabs) {
+        if (!tab.isConnected) continue;
+        try {
+          gBrowser.moveTabToExistingGroup(tab, canonical);
+          movedThisLabel++;
+        } catch (e) {
+          console.error(`${LOG} error merging tab into "${label}":`, e);
         }
       }
 
-      mergedLabels++;
-      totalTabsMoved += movedThisLabel;
-      console.log(`${LOG} consolidated ${groupEls.length} "${label}" groups → 1 (moved ${movedThisLabel} tab(s))`);
+      if (dup.isConnected && !dup.querySelector("tab")) {
+        try { dup.remove(); } catch (e) {
+          console.error(`${LOG} error removing empty duplicate "${label}":`, e);
+        }
+      }
     }
-  } finally {
-    setTabGroupedHookSuppressed(false);
+
+    mergedLabels++;
+    totalTabsMoved += movedThisLabel;
+    console.log(`${LOG} consolidated ${groupEls.length} "${label}" groups → 1 (moved ${movedThisLabel} tab(s))`);
   }
 
   return { mergedLabels, tabsMoved: totalTabsMoved };
