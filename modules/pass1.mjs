@@ -2,7 +2,7 @@
 // Pure logic over rules + tab info; applyPass1 mutates the DOM via gBrowser APIs.
 
 import { LOG } from "./config.mjs";
-import { findExistingGroup, expandIfCollapsed, collapseGroup, applyGroupColor, findSafeInsertAnchor } from "./groups.mjs";
+import { findExistingGroup, expandIfCollapsed, collapseGroup, applyGroupColor, findSafeInsertAnchor, getRuleColor } from "./groups.mjs";
 
 // Match a hostname against a single rule-domain pattern.
 //   "host.com"    matches the bare host AND any subdomain
@@ -69,7 +69,7 @@ export const applyPass1 = (byGroup, workspaceId, rules) => {
   let movedToNew = 0;
   const errors = [];
 
-  const colorByName = new Map(rules.filter((r) => r.color).map((r) => [r.name, r.color]));
+  const colorByName = new Map(rules.map((r, i) => [r.name, getRuleColor(r, i)]));
 
   for (const [groupName, items] of byGroup) {
     // Resolve each item's tab info to its live DOM node (`_tab`) and re-check the
@@ -119,6 +119,7 @@ export const applyPass1 = (byGroup, workspaceId, rules) => {
       try {
         const newGroup = gBrowser.addTabGroup(tabsForGroup, {
           label: groupName,
+          color: colorByName.get(groupName),
           // Anchor at a DOM position OUTSIDE any enclosing tab-group; otherwise
           // Zen creates the new group as a child of the old one (nesting bug).
           insertBefore: findSafeInsertAnchor(),

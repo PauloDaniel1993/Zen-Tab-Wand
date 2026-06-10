@@ -20,13 +20,13 @@
   },
   {
     "type": "checkbox",
-    "label": "Minimal style - strip group colors and match Zen's address-bar styling",
+    "label": "Minimal style — strip group colors and match Zen's address-bar styling",
     "property": "extensions.zen-auto-organize.minimal-style",
     "defaultValue": false
   },
   {
     "type": "checkbox",
-    "label": "Strict rule enforcement - eject tabs from a group when their hostname isn't in that group's rule",
+    "label": "Strict rule enforcement — eject tabs from a group when their hostname isn't in that group's rule",
     "property": "extensions.zen-auto-organize.strict-rules",
     "defaultValue": false
   },
@@ -40,9 +40,9 @@
     "label": "AI engine",
     "property": "extensions.zen-auto-organize.ai-engine",
     "options": [
-      { "label": "Local - Built-in model, limited capability", "value": "local" },
-      { "label": "Ollama - Stronger model, requires Ollama running locally", "value": "ollama" },
-      { "label": "DeepSeek - Cloud model, requires API key", "value": "deepseek" }
+      { "label": "Local — Built-in model, limited capability", "value": "local" },
+      { "label": "Ollama — Stronger model, requires Ollama running locally", "value": "ollama" },
+      { "label": "DeepSeek — Cloud model, requires API key", "value": "deepseek" }
     ]
   },
   {
@@ -51,8 +51,8 @@
     "property": "extensions.zen-auto-organize.ai-existing-behavior",
     "defaultValue": "always-add",
     "options": [
-      { "label": "Always-add - Append the tab's domain to the matched rule (rules grow)", "value": "always-add" },
-      { "label": "Transient - Move the tab only, rules untouched", "value": "transient" }
+      { "label": "Always-add — Append the tab's domain to the matched rule (rules grow)", "value": "always-add" },
+      { "label": "Transient — Move the tab only, rules untouched", "value": "transient" }
     ]
   },
   {
@@ -61,11 +61,11 @@
     "property": "extensions.zen-auto-organize.ai-new-group-behavior",
     "defaultValue": "auto-add",
     "options": [
-      { "label": "Auto-add - Create the group and save it as a new rule", "value": "auto-add" },
-      { "label": "Transient - Create the group only, no rule added", "value": "transient" },
-      { "label": "Prompt - Open Zen's edit modal to confirm name and color", "value": "prompt" },
-      { "label": "Fresh categories - Re-tidy ALL tabs into AI-invented groups, ignoring rules", "value": "fresh-categories" },
-      { "label": "Plan Mode - Preview the AI's plan, pick which groups to keep, optionally re-assign", "value": "identify-only" }
+      { "label": "Auto-add — Create the group and save it as a new rule", "value": "auto-add" },
+      { "label": "Transient — Create the group only, no rule added", "value": "transient" },
+      { "label": "Prompt — Open Zen's edit modal to confirm name and color", "value": "prompt" },
+      { "label": "Fresh categories — Re-tidy ALL tabs into AI-invented groups, ignoring rules", "value": "fresh-categories" },
+      { "label": "Plan Mode — Preview the AI's plan, pick which groups to keep, optionally re-assign", "value": "identify-only" }
     ]
   },
   {
@@ -82,7 +82,7 @@
   },
   {
     "type": "checkbox",
-    "label": "Keep Ollama model warm - preloads at browser start and keeps it loaded between clicks (faster tidy clicks; uses VRAM continuously)",
+    "label": "Keep Ollama model warm — preloads at browser start and keeps it loaded between clicks (faster tidy clicks; uses VRAM continuously)",
     "property": "extensions.zen-auto-organize.ai-ollama-warmup",
     "defaultValue": true
   },

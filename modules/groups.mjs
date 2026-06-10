@@ -2,7 +2,7 @@
 // color application (named via Zen API; hex via CSS variable overrides), and the
 // sort-ungrouped-to-top pass.
 
-import { CONFIG, LOG, isZenColorName, isValidHex } from "./config.mjs";
+import { CONFIG, LOG, PRESET_COLORS, isZenColorName, isValidHex } from "./config.mjs";
 import { isMinimalStyle } from "./rules.mjs";
 
 // Find an existing tab-group with the given label in the given workspace.
@@ -130,6 +130,11 @@ export const clearGroupColor = (groupEl) => {
   }
 };
 
+export const getRuleColor = (rule, index = 0) => {
+  if (rule?.color) return rule.color;
+  return PRESET_COLORS[index % PRESET_COLORS.length]?.name || "blue";
+};
+
 /**
  * Walk every rule-named tab-group and either apply its rule.color or toggle the
  * `.zao-minimal` class (when minimal style pref is on). Catches groups that
@@ -142,7 +147,7 @@ export const clearGroupColor = (groupEl) => {
  */
 export const syncAllGroupColors = (workspaceId, rules) => {
   const minimal = isMinimalStyle();
-  const colorByName = new Map(rules.filter((r) => r.color).map((r) => [r.name, r.color]));
+  const colorByName = new Map(rules.map((r, i) => [r.name, getRuleColor(r, i)]));
   const ruleNames = new Set(rules.map((r) => r.name));
 
   let touched = 0;
@@ -160,7 +165,6 @@ export const syncAllGroupColors = (workspaceId, rules) => {
     } else {
       groupEl.classList.remove("zao-minimal");
       if (colorByName.has(label)) applyGroupColor(groupEl, colorByName.get(label));
-      else clearGroupColor(groupEl);
     }
     touched++;
   }
