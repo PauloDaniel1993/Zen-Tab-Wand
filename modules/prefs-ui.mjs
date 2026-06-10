@@ -166,7 +166,8 @@ const updateConditionalFields = (dialog) => {
   // Always go through getAIEngine() so unknown / empty / "None" pref values
   // normalize to "off" the same way as everywhere else in the codebase.
   const engine = getAIEngine();
-  const isLocalOrOllama = engine === "local" || engine === "ollama";
+  const isLlmEngine = engine === "ollama" || engine === "deepseek";
+  const isAiEngine = engine === "local" || isLlmEngine;
 
   const setHidden = (row, hidden) => {
     if (!row) return;
@@ -179,9 +180,9 @@ const updateConditionalFields = (dialog) => {
   //   Existing-behavior is hidden because Local unifies both decisions into
   //   the single dropdown (auto-add = grow rules; transient = don't; fresh =
   //   re-cluster ignoring rules entirely).
-  setHidden(findPrefRow(dialog, CONFIG.AI_EXISTING_BEHAVIOR_PREF), engine !== "ollama");
+  setHidden(findPrefRow(dialog, CONFIG.AI_EXISTING_BEHAVIOR_PREF), !isLlmEngine);
   const newGroupBehaviorRow = findPrefRow(dialog, CONFIG.AI_NEW_GROUP_BEHAVIOR_PREF);
-  setHidden(newGroupBehaviorRow, !isLocalOrOllama);
+  setHidden(newGroupBehaviorRow, !isAiEngine);
   if (engine === "local") {
     filterDropdownOptions(newGroupBehaviorRow, LOCAL_NEW_GROUP_BEHAVIORS);
     // If the user previously had an Ollama-only behavior selected (e.g.
@@ -196,8 +197,8 @@ const updateConditionalFields = (dialog) => {
     } catch (e) {
       console.error(`${LOG} failed to reset new-group-behavior pref:`, e);
     }
-  } else if (engine === "ollama") {
-    // Restore all options for Ollama (whitelist matches preferences.json).
+  } else if (isLlmEngine) {
+    // Restore all options for LLM-backed engines (whitelist matches preferences.json).
     filterDropdownOptions(newGroupBehaviorRow,
       new Set(["auto-add", "transient", "prompt", "fresh-categories", "identify-only"])
     );
@@ -205,7 +206,10 @@ const updateConditionalFields = (dialog) => {
   setHidden(findPrefRow(dialog, CONFIG.AI_OLLAMA_HOST_PREF),        engine !== "ollama");
   setHidden(findPrefRow(dialog, CONFIG.AI_OLLAMA_MODEL_PREF),       engine !== "ollama");
   setHidden(findPrefRow(dialog, CONFIG.AI_OLLAMA_WARMUP_PREF),      engine !== "ollama");
-  setHidden(findPrefRow(dialog, CONFIG.AI_LOCAL_BATCH_SIZE_PREF),   !isLocalOrOllama);
+  setHidden(findPrefRow(dialog, CONFIG.AI_DEEPSEEK_BASE_URL_PREF),  engine !== "deepseek");
+  setHidden(findPrefRow(dialog, CONFIG.AI_DEEPSEEK_API_KEY_PREF),   engine !== "deepseek");
+  setHidden(findPrefRow(dialog, CONFIG.AI_DEEPSEEK_MODEL_PREF),     engine !== "deepseek");
+  setHidden(findPrefRow(dialog, CONFIG.AI_LOCAL_BATCH_SIZE_PREF),   !isAiEngine);
 };
 
 // First-time AI engine warning modals.
@@ -363,6 +367,39 @@ const maybeShowLocalWarning = () => {
   });
 };
 
+const maybeShowDeepSeekWarning = () => {
+  const title = h("h3", { class: "zao-warning-title", text: "Heads up: DeepSeek uses a cloud API" });
+
+  const lead = h("p", { class: "zao-warning-lead" });
+  lead.appendChild(document.createTextNode("DeepSeek sends tab metadata to "));
+  lead.appendChild(h("strong", { text: "api.deepseek.com" }));
+  lead.appendChild(document.createTextNode(" for classification."));
+
+  const list = h("ul", { class: "zao-warning-list" });
+
+  const li1 = h("li");
+  li1.appendChild(h("strong", { text: "Privacy: " }));
+  li1.appendChild(document.createTextNode("tab hostnames, titles, and fetched page snippets may leave your machine."));
+
+  const li2 = h("li");
+  li2.appendChild(h("strong", { text: "Key storage: " }));
+  li2.appendChild(document.createTextNode("your API key is saved in this browser profile's preferences."));
+
+  const li3 = h("li");
+  li3.appendChild(h("strong", { text: "Cost: " }));
+  li3.appendChild(document.createTextNode("DeepSeek API usage can consume paid credits."));
+
+  list.appendChild(li1);
+  list.appendChild(li2);
+  list.appendChild(li3);
+
+  showAckModal({
+    ackPref: CONFIG.DEEPSEEK_ACKNOWLEDGED_PREF,
+    contentNodes: [title, lead, list],
+    logTag: "deepseek-warning",
+  });
+};
+
 // Re-run the show/hide pass whenever the engine pref flips. One observer per
 // preferences-window context, torn down with the rest on window unload.
 let enginePrefObserver = null;
@@ -381,6 +418,7 @@ const setupEnginePrefObserver = () => {
           // acknowledgement pref; neither modal re-fires once acknowledged.
           if (engine === "ollama") maybeShowOllamaWarning();
           else if (engine === "local") maybeShowLocalWarning();
+          else if (engine === "deepseek") maybeShowDeepSeekWarning();
           break;
         }
       }

@@ -61,12 +61,18 @@ export const CONFIG = {
   AI_OLLAMA_HOST_PREF: "extensions.zen-auto-organize.ai-ollama-host",
   AI_OLLAMA_MODEL_PREF: "extensions.zen-auto-organize.ai-ollama-model",
   AI_OLLAMA_WARMUP_PREF: "extensions.zen-auto-organize.ai-ollama-warmup",
+  AI_DEEPSEEK_BASE_URL_PREF: "extensions.zen-auto-organize.ai-deepseek-base-url",
+  AI_DEEPSEEK_API_KEY_PREF: "extensions.zen-auto-organize.ai-deepseek-api-key",
+  AI_DEEPSEEK_MODEL_PREF: "extensions.zen-auto-organize.ai-deepseek-model",
   // One-shot flags: set true after the user dismisses the first-time AI
   // engine resource-warning modal. Each engine has its own acknowledgement.
   OLLAMA_ACKNOWLEDGED_PREF: "extensions.zen-auto-organize.ollama-acknowledged",
   LOCAL_ACKNOWLEDGED_PREF: "extensions.zen-auto-organize.local-acknowledged",
+  DEEPSEEK_ACKNOWLEDGED_PREF: "extensions.zen-auto-organize.deepseek-acknowledged",
   AI_OLLAMA_HOST_DEFAULT: "http://localhost:11434",
   AI_OLLAMA_MODEL_DEFAULT: "qwen2.5:1.5b",
+  AI_DEEPSEEK_BASE_URL_DEFAULT: "https://api.deepseek.com",
+  AI_DEEPSEEK_MODEL_DEFAULT: "deepseek-v4-flash",
 
   // Local-AI thresholds. The smart-tab-embedding model's similarity scores are
   // compressed into a narrow band — correct picks land around 0.25-0.45 raw —

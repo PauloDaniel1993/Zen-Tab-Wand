@@ -49,21 +49,28 @@ const stripMetaPrefix = (s) => s
 // caller surfaces to the user. Used both directly (re-assign-to-planned in
 // the Plan Mode modal) and indirectly via the Ollama Pass 2 driver.
 
-export const classifyExistingGroupsBatch = async (unmatched, rules, host, model) => {
+export const classifyExistingGroupsBatch = async (
+  unmatched,
+  rules,
+  host,
+  model,
+  generateJson = (prompt) => ollamaGenerateJson(host, model, prompt),
+  label = "Ollama",
+) => {
   if (!unmatched?.length || !rules?.length) return new Map();
   const prompt = buildClassifyPrompt(rules, unmatched);
   const groupNames = rules.map((r) => r?.name).filter(Boolean);
 
-  const r = await ollamaGenerateJson(host, model, prompt);
+  const r = await generateJson(prompt);
   if (!r.ok) {
-    throw new Error(`Ollama classify: ${r.error}`);
+    throw new Error(`${label} classify: ${r.error}`);
   }
   const parsed = r.parsed;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Ollama classify: returned non-object JSON");
+    throw new Error(`${label} classify: returned non-object JSON`);
   }
 
-  console.debug(`${LOG} Ollama raw classification:`, parsed);
+  console.debug(`${LOG} ${label} raw classification:`, parsed);
 
   // Validate categories — small models occasionally hallucinate names that
   // weren't in the list. Case-insensitive match to be forgiving of "shopping"
@@ -96,14 +103,20 @@ export const classifyExistingGroupsBatch = async (unmatched, rules, host, model)
 // it's still used when there are no existing rules (no categories to slot
 // into) — the unified prompt has nothing to compare against in that case.
 
-const clusterUnmatchedNewGroups = async (leftover, host, model) => {
+const clusterUnmatchedNewGroups = async (
+  leftover,
+  host,
+  model,
+  generateJson = (prompt) => ollamaGenerateJson(host, model, prompt),
+  label = "Ollama",
+) => {
   if (!leftover?.length) return { groups: [], skipped: [] };
   const prompt = buildClusterPrompt(leftover);
 
-  const r = await ollamaGenerateJson(host, model, prompt);
-  if (!r.ok) throw new Error(`Ollama cluster: ${r.error}`);
+  const r = await generateJson(prompt);
+  if (!r.ok) throw new Error(`${label} cluster: ${r.error}`);
 
-  console.debug(`${LOG} Ollama raw clustering:`, r.parsed);
+  console.debug(`${LOG} ${label} raw clustering:`, r.parsed);
 
   const validIdx = (i) => Number.isFinite(i) && i >= 0 && i < leftover.length;
   const seen = new Set();
@@ -130,14 +143,21 @@ const clusterUnmatchedNewGroups = async (leftover, host, model) => {
 // to consolidate. Used when the engine is Ollama and the flow isn't fresh /
 // Plan Mode (i.e., auto-add / always-add / transient / prompt modes).
 
-export const unifiedClassifyOllama = async (unmatched, rules, host, model) => {
+export const unifiedClassifyOllama = async (
+  unmatched,
+  rules,
+  host,
+  model,
+  generateJson = (prompt) => ollamaGenerateJson(host, model, prompt),
+  label = "Ollama",
+) => {
   if (!unmatched?.length) return { assignedToExisting: [], newGroups: [], skipped: [] };
 
   // No existing rules → degrades to pure clustering. Use the dedicated cluster
   // prompt (it's tuned for that case, the unified prompt would have no
   // categories section to render).
   if (!rules.some((r) => r?.name)) {
-    const c = await clusterUnmatchedNewGroups(unmatched, host, model);
+    const c = await clusterUnmatchedNewGroups(unmatched, host, model, generateJson, label);
     return { assignedToExisting: [], newGroups: c.groups, skipped: c.skipped };
   }
 
@@ -180,14 +200,14 @@ export const unifiedClassifyOllama = async (unmatched, rules, host, model) => {
   console.groupEnd();
 
   const prompt = buildUnifiedPrompt(rules, deduped, snippets);
-  const r = await ollamaGenerateJson(host, model, prompt);
-  if (!r.ok) throw new Error(`Ollama unified: ${r.error}`);
+  const r = await generateJson(prompt);
+  if (!r.ok) throw new Error(`${label} unified: ${r.error}`);
   const parsed = r.parsed;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Ollama unified: returned non-object JSON");
+    throw new Error(`${label} unified: returned non-object JSON`);
   }
 
-  console.debug(`${LOG} Ollama unified classification:`, parsed);
+  console.debug(`${LOG} ${label} unified classification:`, parsed);
 
   // Lookup table for canonicalizing an existing rule name (case-insensitive).
   const ruleNameByLower = new Map(
@@ -228,7 +248,7 @@ export const unifiedClassifyOllama = async (unmatched, rules, host, model) => {
   let newGroups = [...newGroupsByKey.values()];
   if (newGroups.length >= 2) {
     try {
-      newGroups = await mergeNewCategoriesPass(newGroups, host, model);
+      newGroups = await mergeNewCategoriesPass(newGroups, host, model, generateJson, label);
     } catch (e) {
       console.warn(`${LOG} Ollama merge-pass errored — keeping un-merged groups:`, e);
     }
@@ -308,24 +328,30 @@ const dedupeSimilarNewGroups = (newGroups) => {
 // map — nested arrays-of-objects consistently produced bad JSON in testing.
 // Falls back to the input newGroups on any error (logged, no throw).
 
-const mergeNewCategoriesPass = async (newGroups, host, model) => {
+const mergeNewCategoriesPass = async (
+  newGroups,
+  host,
+  model,
+  generateJson = (prompt) => ollamaGenerateJson(host, model, prompt),
+  label = "Ollama",
+) => {
   if (!newGroups || newGroups.length < 2) return newGroups;
   const prompt = buildMergePrompt(newGroups);
   const t0 = performance.now();
 
-  const r = await ollamaGenerateJson(host, model, prompt);
+  const r = await generateJson(prompt);
   if (!r.ok) {
-    console.warn(`${LOG} Ollama merge-pass failed (${r.errorType}: ${r.error}), keeping original groups`);
+    console.warn(`${LOG} ${label} merge-pass failed (${r.errorType}: ${r.error}), keeping original groups`);
     return newGroups;
   }
   const parsed = r.parsed;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    console.warn(`${LOG} Ollama merge-pass returned non-object, keeping original groups (got ${Array.isArray(parsed) ? "array" : typeof parsed})`);
+    console.warn(`${LOG} ${label} merge-pass returned non-object, keeping original groups (got ${Array.isArray(parsed) ? "array" : typeof parsed})`);
     return newGroups;
   }
 
-  console.log(`${LOG} Ollama merge-pass took ${Math.round(performance.now() - t0)}ms`);
-  console.debug(`${LOG} Ollama merge-pass raw response:`, parsed);
+  console.log(`${LOG} ${label} merge-pass took ${Math.round(performance.now() - t0)}ms`);
+  console.debug(`${LOG} ${label} merge-pass raw response:`, parsed);
 
   // Schema: { "Original Name": "Target Name", ... } — for each original, the
   // model picks a target. Originals sharing a target get merged into one
@@ -394,12 +420,19 @@ export const runPass2Ollama = async (unmatched, rules) => {
  *
  * @returns Promise<{ assignedToExisting, newGroups, skipped, failed? }>
  */
-export const runPass2OllamaFresh = async (allTabs) => {
+export const runPass2OllamaFresh = async (
+  allTabs,
+  hostOverride = null,
+  modelOverride = null,
+  generateJsonOverride = null,
+  label = "Ollama",
+) => {
   const empty = { assignedToExisting: [], newGroups: [], skipped: [] };
   if (!allTabs?.length) return empty;
 
-  const host = getOllamaHost();
-  const model = getOllamaModel();
+  const host = hostOverride || getOllamaHost();
+  const model = modelOverride || getOllamaModel();
+  const generateJson = generateJsonOverride || ((prompt) => ollamaGenerateJson(host, model, prompt));
 
   try {
     // Dedup duplicate tabs (same hostname + title) — same reasoning as the
@@ -429,19 +462,19 @@ export const runPass2OllamaFresh = async (allTabs) => {
     console.log(`${LOG} Ollama fresh: fetched snippets for ${hit}/${deduped.length} tab(s) in ${Math.round(performance.now() - t0)}ms`);
 
     const prompt = buildFreshPrompt(deduped, snippets);
-    const r = await ollamaGenerateJson(host, model, prompt);
+    const r = await generateJson(prompt);
     if (!r.ok) {
-      console.error(`${LOG} Ollama fresh failed (${r.errorType}):`, r.error);
-      showToast(`Ollama fresh classification failed: ${r.error}`);
+      console.error(`${LOG} ${label} fresh failed (${r.errorType}):`, r.error);
+      showToast(`${label} fresh classification failed: ${r.error}`);
       return { ...empty, skipped: allTabs, failed: r.error };
     }
     const parsed = r.parsed;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      console.warn(`${LOG} Ollama fresh: non-object JSON, returning all as skipped`);
+      console.warn(`${LOG} ${label} fresh: non-object JSON, returning all as skipped`);
       return { ...empty, skipped: allTabs };
     }
 
-    console.debug(`${LOG} Ollama fresh classification:`, parsed);
+    console.debug(`${LOG} ${label} fresh classification:`, parsed);
 
     const newGroupsByKey = new Map();
     const skipped = [];
@@ -466,7 +499,7 @@ export const runPass2OllamaFresh = async (allTabs) => {
     let newGroups = [...newGroupsByKey.values()];
     if (newGroups.length >= 2) {
       try {
-        newGroups = await mergeNewCategoriesPass(newGroups, host, model);
+        newGroups = await mergeNewCategoriesPass(newGroups, host, model, generateJson, label);
       } catch (e) {
         console.warn(`${LOG} Ollama merge-pass errored — keeping un-merged groups:`, e);
       }

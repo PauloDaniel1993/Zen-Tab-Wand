@@ -178,12 +178,12 @@ export const isStrictRulesEnforced = () => {
   }
 };
 
-// Which AI engine is selected. Returns one of: "off" | "local" | "ollama".
+// Which AI engine is selected. Returns one of: "off" | "local" | "ollama" | "deepseek".
 // Any unrecognized value (Sine's "None" is the empty string) maps to "off".
 export const getAIEngine = () => {
   try {
     const engine = Services.prefs.getStringPref(CONFIG.AI_ENGINE_PREF, "");
-    if (engine === "local" || engine === "ollama") return engine;
+    if (engine === "local" || engine === "ollama" || engine === "deepseek") return engine;
     return "off";
   } catch {
     return "off";
@@ -205,6 +205,32 @@ export const getOllamaModel = () => {
     return v || CONFIG.AI_OLLAMA_MODEL_DEFAULT;
   } catch {
     return CONFIG.AI_OLLAMA_MODEL_DEFAULT;
+  }
+};
+
+export const getDeepSeekBaseUrl = () => {
+  try {
+    const v = Services.prefs.getStringPref(CONFIG.AI_DEEPSEEK_BASE_URL_PREF, "").trim();
+    return v || CONFIG.AI_DEEPSEEK_BASE_URL_DEFAULT;
+  } catch {
+    return CONFIG.AI_DEEPSEEK_BASE_URL_DEFAULT;
+  }
+};
+
+export const getDeepSeekApiKey = () => {
+  try {
+    return Services.prefs.getStringPref(CONFIG.AI_DEEPSEEK_API_KEY_PREF, "").trim();
+  } catch {
+    return "";
+  }
+};
+
+export const getDeepSeekModel = () => {
+  try {
+    const v = Services.prefs.getStringPref(CONFIG.AI_DEEPSEEK_MODEL_PREF, "").trim();
+    return v || CONFIG.AI_DEEPSEEK_MODEL_DEFAULT;
+  } catch {
+    return CONFIG.AI_DEEPSEEK_MODEL_DEFAULT;
   }
 };
 

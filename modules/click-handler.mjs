@@ -4,7 +4,7 @@
 
 import { CONFIG, LOG, BUILD_VERSION } from "./config.mjs";
 // (CONFIG is used inside the click pipeline for thresholds, pref names, and DOM ids.)
-import { loadRules, readSkipDomainsPref, isMinimalStyle, isStrictRulesEnforced, getAIEngine, getOllamaHost, getOllamaModel, getAINewGroupBehavior, getAIExistingBehavior } from "./rules.mjs";
+import { loadRules, readSkipDomainsPref, isMinimalStyle, isStrictRulesEnforced, getAIEngine, getOllamaHost, getOllamaModel, getDeepSeekBaseUrl, getDeepSeekApiKey, getDeepSeekModel, getAINewGroupBehavior, getAIExistingBehavior } from "./rules.mjs";
 import { getEligibleTabs } from "./tabs.mjs";
 import {
   consolidateDuplicateGroups,
@@ -17,6 +17,7 @@ import {
 import { runPass1, applyPass1, matchesDomain } from "./pass1.mjs";
 import { runPass2, runPass2Fresh, applyPass2 } from "./ai.mjs";
 import { checkOllamaReady, reportOllamaError, normalizeOllamaHost, runPass2Ollama, runPass2OllamaFresh, classifyExistingGroupsBatch } from "./ollama.mjs";
+import { checkDeepSeekReady, reportDeepSeekError, normalizeDeepSeekBaseUrl, runPass2DeepSeek, runPass2DeepSeekFresh, classifyExistingGroupsDeepSeekBatch } from "./deepseek.mjs";
 import { showPreviewModal } from "./preview-modal.mjs";
 
 // Module-version stamp so we can confirm the latest copy is loaded in the running window.
@@ -272,6 +273,43 @@ export const handleOrganizeClick = async () => {
             }
             console.log(`${LOG} Ollama Pass 2 took ${Math.round(performance.now() - t0)}ms`);
           }
+        } else if (aiEngine === "deepseek") {
+          const baseUrl = getDeepSeekBaseUrl();
+          const apiKey = getDeepSeekApiKey();
+          const model = getDeepSeekModel();
+          const status = await checkDeepSeekReady(baseUrl, apiKey, model);
+          if (!status.reachable || !status.authenticated || !status.modelAvailable) {
+            reportDeepSeekError(baseUrl, model, status);
+            pass2 = { assignedToExisting: [], newGroups: [], skipped: isFreshMode ? tabs : unmatched };
+          } else {
+            console.debug(`${LOG} DeepSeek ready at ${normalizeDeepSeekBaseUrl(baseUrl)} (model: ${model})`);
+            const t0 = performance.now();
+            if (isFreshLike) {
+              pass2 = await runPass2DeepSeekFresh(tabs);
+            } else {
+              pass2 = await runPass2DeepSeek(unmatched, rules);
+              if (pass2.newGroups?.length) {
+                const displaced = [];
+                for (const g of pass2.newGroups) {
+                  const stays = [];
+                  for (const t of g.tabs) {
+                    if (t.currentGroup) displaced.push(t);
+                    else stays.push(t);
+                  }
+                  g.tabs = stays;
+                }
+                pass2.newGroups = pass2.newGroups.filter((g) => g.tabs.length > 0);
+                if (displaced.length > 0) {
+                  console.log(
+                    `${LOG} stickiness: kept ${displaced.length} already-grouped tab(s) in place rather than moving to new AI group(s):`,
+                    displaced.map((t) => `${t.hostname} (in "${t.currentGroup}")`)
+                  );
+                  pass2.skipped = [...(pass2.skipped || []), ...displaced];
+                }
+              }
+            }
+            console.log(`${LOG} DeepSeek Pass 2 took ${Math.round(performance.now() - t0)}ms`);
+          }
         } else {
           // Local engine. Two sub-paths:
           //   - fresh-categories / identify-only: cluster ALL eligible tabs
@@ -339,7 +377,7 @@ export const handleOrganizeClick = async () => {
           if (isIdentifyOnly) {
             showModal = true;
             modalReason = "Plan Mode";
-          } else if (aiEngine === "ollama" && !isFreshMode && newGroupBehavior !== "prompt") {
+          } else if ((aiEngine === "ollama" || aiEngine === "deepseek") && !isFreshMode && newGroupBehavior !== "prompt") {
             const existingBehavior = getAIExistingBehavior();
             const flags = [];
             if (existingBehavior === "always-add") flags.push("always-add");
@@ -361,7 +399,9 @@ export const handleOrganizeClick = async () => {
               onReassignToNew: async (pendingTabs) => {
                 const r = aiEngine === "local"
                   ? await runPass2Fresh(pendingTabs)
-                  : await runPass2OllamaFresh(pendingTabs);
+                  : aiEngine === "deepseek"
+                    ? await runPass2DeepSeekFresh(pendingTabs)
+                    : await runPass2OllamaFresh(pendingTabs);
                 return { newGroups: r.newGroups, skipped: r.skipped };
               },
               // "Re-assign to planned" — constrained-vocabulary classification.
@@ -369,13 +409,24 @@ export const handleOrganizeClick = async () => {
               // fake rule whose domains are its tabs' hostnames, then runs
               // Phase-3-style classification into one of those names.
               onAssignToPlanned: async (pendingTabs, keptBuckets) => {
-                const host = getOllamaHost();
-                const model = getOllamaModel();
                 const fakeRules = keptBuckets.map((g) => ({
                   name: g.name,
                   domains: [...new Set(g.tabs.map((t) => t.hostname).filter((h) => h))],
                 }));
-                const assignmentMap = await classifyExistingGroupsBatch(pendingTabs, fakeRules, host, model);
+                const assignmentMap = aiEngine === "deepseek"
+                  ? await classifyExistingGroupsDeepSeekBatch(
+                    pendingTabs,
+                    fakeRules,
+                    getDeepSeekBaseUrl(),
+                    getDeepSeekApiKey(),
+                    getDeepSeekModel(),
+                  )
+                  : await classifyExistingGroupsBatch(
+                    pendingTabs,
+                    fakeRules,
+                    getOllamaHost(),
+                    getOllamaModel(),
+                  );
                 const assignments = [];
                 const skipped = [];
                 for (let i = 0; i < pendingTabs.length; i++) {
@@ -392,9 +443,20 @@ export const handleOrganizeClick = async () => {
               // callback is only provided when rules actually exist — modal
               // disables the button when undefined.
               onAssignToExisting: rules.length > 0 ? async (pendingTabs) => {
-                const host = getOllamaHost();
-                const model = getOllamaModel();
-                const assignmentMap = await classifyExistingGroupsBatch(pendingTabs, rules, host, model);
+                const assignmentMap = aiEngine === "deepseek"
+                  ? await classifyExistingGroupsDeepSeekBatch(
+                    pendingTabs,
+                    rules,
+                    getDeepSeekBaseUrl(),
+                    getDeepSeekApiKey(),
+                    getDeepSeekModel(),
+                  )
+                  : await classifyExistingGroupsBatch(
+                    pendingTabs,
+                    rules,
+                    getOllamaHost(),
+                    getOllamaModel(),
+                  );
                 const assignments = [];
                 const skipped = [];
                 for (let i = 0; i < pendingTabs.length; i++) {
