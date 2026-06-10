@@ -36,12 +36,14 @@ const isPrefsContext =
 
 const tryInitializeBrowser = () => {
   try {
-    const separatorExists = domCache.getSeparators().length > 0;
+    const injectionTargetExists =
+      domCache.getSeparators().length > 0 ||
+      !!document.querySelector("#tabbrowser-arrowscrollbox-periphery");
     const commandSetExists = !!domCache.getCommandSet();
     const gBrowserReady = typeof gBrowser !== "undefined" && gBrowser?.tabContainer;
     const gZenWorkspacesReady = typeof window.gZenWorkspaces !== "undefined";
 
-    if (gBrowserReady && commandSetExists && separatorExists && gZenWorkspacesReady) {
+    if (gBrowserReady && commandSetExists && injectionTargetExists && gZenWorkspacesReady) {
       setupCommand();
       addButtonToAllSeparators();
       setupWorkspaceHooks();
