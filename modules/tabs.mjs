@@ -21,16 +21,6 @@ export const getTabUrl = (tab) => {
   return browser?.currentURI?.spec || "";
 };
 
-export const getTabFaviconUrl = (tab) => {
-  if (!tab?.isConnected) return "";
-  return (
-    tab.getAttribute("image") ||
-    tab.image ||
-    tab.getAttribute("icon") ||
-    ""
-  );
-};
-
 export const getHostname = (url) => {
   if (!url || url.startsWith("about:")) return "";
   try {
@@ -183,7 +173,6 @@ export const getEligibleTabs = () => {
         title: getTabTitle(tab) || "(untitled)",
         url,
         hostname: getHostname(url),
-        faviconUrl: getTabFaviconUrl(tab),
         currentGroup: currentGroupEl?.getAttribute("label") || null,
         _tab: tab,
       };

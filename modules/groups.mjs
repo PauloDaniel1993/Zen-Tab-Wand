@@ -3,7 +3,6 @@
 // sort-ungrouped-to-top pass.
 
 import { CONFIG, LOG, PRESET_COLORS, isZenColorName, isValidHex } from "./config.mjs";
-import { getTabFaviconUrl } from "./tabs.mjs";
 import { isMinimalStyle } from "./rules.mjs";
 
 // Find an existing tab-group with the given label in the given workspace.
@@ -134,95 +133,6 @@ export const clearGroupColor = (groupEl) => {
 export const getRuleColor = (rule, index = 0) => {
   if (rule?.color) return rule.color;
   return PRESET_COLORS[index % PRESET_COLORS.length]?.name || "blue";
-};
-
-const rgbToHex = (r, g, b) =>
-  "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
-
-const median = (values) => {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)];
-};
-
-const loadImageElement = (src) => new Promise((resolve) => {
-  if (!src) { resolve(null); return; }
-  const img = new Image();
-  const timer = setTimeout(() => {
-    img.onload = null;
-    img.onerror = null;
-    resolve(null);
-  }, 750);
-  img.onload = () => {
-    clearTimeout(timer);
-    resolve(img);
-  };
-  img.onerror = () => {
-    clearTimeout(timer);
-    resolve(null);
-  };
-  img.src = src;
-});
-
-const loadImage = async (src) => {
-  let objectUrl = "";
-  try {
-    if (/^(?:https?|chrome|resource):/i.test(src)) {
-      const res = await fetch(src, { credentials: "include", cache: "force-cache" });
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      objectUrl = URL.createObjectURL(blob);
-      const img = await loadImageElement(objectUrl);
-      if (img) img._zaoObjectUrl = objectUrl;
-      else if (objectUrl) URL.revokeObjectURL(objectUrl);
-      return img;
-    }
-  } catch (e) {
-    console.debug(`${LOG} favicon fetch failed for ${src}:`, e);
-  }
-  return loadImageElement(src);
-};
-
-export const medianFaviconColor = async (tabs) => {
-  const faviconUrls = [...new Set((tabs || [])
-    .map((t) => t?.faviconUrl || getTabFaviconUrl(t?._tab || t))
-    .filter((url) => typeof url === "string" && url.length > 0))];
-  if (!faviconUrls.length) return null;
-
-  const canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
-  canvas.width = 16;
-  canvas.height = 16;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-
-  const rs = [];
-  const gs = [];
-  const bs = [];
-  for (const url of faviconUrls) {
-    const img = await loadImage(url);
-    if (!img) continue;
-    try {
-      ctx.clearRect(0, 0, 16, 16);
-      ctx.drawImage(img, 0, 0, 16, 16);
-      const data = ctx.getImageData(0, 0, 16, 16).data;
-      for (let i = 0; i < data.length; i += 4) {
-        const alpha = data[i + 3];
-        if (alpha < 32) continue;
-        rs.push(data[i]);
-        gs.push(data[i + 1]);
-        bs.push(data[i + 2]);
-      }
-    } catch (e) {
-      console.debug(`${LOG} favicon color sample failed for ${url}:`, e);
-    } finally {
-      if (img._zaoObjectUrl) {
-        try { URL.revokeObjectURL(img._zaoObjectUrl); } catch {}
-      }
-    }
-  }
-
-  if (!rs.length) return null;
-  return rgbToHex(median(rs), median(gs), median(bs));
 };
 
 /**

@@ -2,8 +2,7 @@
 // Pure logic over rules + tab info; applyPass1 mutates the DOM via gBrowser APIs.
 
 import { LOG } from "./config.mjs";
-import { writeRulesPref } from "./rules.mjs";
-import { findExistingGroup, expandIfCollapsed, collapseGroup, applyGroupColor, findSafeInsertAnchor, getRuleColor, medianFaviconColor } from "./groups.mjs";
+import { findExistingGroup, expandIfCollapsed, collapseGroup, applyGroupColor, findSafeInsertAnchor, getRuleColor } from "./groups.mjs";
 
 // Match a hostname against a single rule-domain pattern.
 //   "host.com"    matches the bare host AND any subdomain
@@ -64,14 +63,12 @@ export const runPass1 = (tabs, rules) => {
  *
  * @returns {{ movedToExisting, createdGroups, movedToNew, errors[] }} counts + per-group error messages.
  */
-export const applyPass1 = async (byGroup, workspaceId, rules) => {
+export const applyPass1 = (byGroup, workspaceId, rules) => {
   let movedToExisting = 0;
   let createdGroups = 0;
   let movedToNew = 0;
-  let ruleColorsAdded = 0;
   const errors = [];
 
-  const ruleByName = new Map(rules.map((r) => [r.name, r]));
   const colorByName = new Map(rules.map((r, i) => [r.name, getRuleColor(r, i)]));
 
   for (const [groupName, items] of byGroup) {
@@ -120,12 +117,9 @@ export const applyPass1 = async (byGroup, workspaceId, rules) => {
     } else {
       console.log(`${LOG} creating new group "${groupName}" (${tabsForGroup.length} tab(s))`);
       try {
-        const rule = ruleByName.get(groupName);
-        const faviconColor = await medianFaviconColor(items);
-        const color = faviconColor || colorByName.get(groupName);
         const newGroup = gBrowser.addTabGroup(tabsForGroup, {
           label: groupName,
-          color,
+          color: colorByName.get(groupName),
           // Anchor at a DOM position OUTSIDE any enclosing tab-group; otherwise
           // Zen creates the new group as a child of the old one (nesting bug).
           insertBefore: findSafeInsertAnchor(),
@@ -133,11 +127,7 @@ export const applyPass1 = async (byGroup, workspaceId, rules) => {
         if (newGroup) {
           createdGroups++;
           movedToNew += tabsForGroup.length;
-          if (color) applyGroupColor(newGroup, color);
-          if (rule && !rule.color && faviconColor) {
-            rule.color = faviconColor;
-            ruleColorsAdded++;
-          }
+          if (colorByName.has(groupName)) applyGroupColor(newGroup, colorByName.get(groupName));
         } else {
           console.warn(`${LOG} addTabGroup returned no element for "${groupName}"`);
           errors.push({ group: groupName, error: "addTabGroup returned null" });
@@ -149,7 +139,5 @@ export const applyPass1 = async (byGroup, workspaceId, rules) => {
     }
   }
 
-  if (ruleColorsAdded > 0) writeRulesPref(rules);
-
-  return { movedToExisting, createdGroups, movedToNew, ruleColorsAdded, errors };
+  return { movedToExisting, createdGroups, movedToNew, errors };
 };
