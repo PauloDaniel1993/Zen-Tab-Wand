@@ -110,14 +110,7 @@ export const ZEN_UNSET_LABEL = "​";
 export const isUnsetLabel = (label) => !label || label === ZEN_UNSET_LABEL;
 
 // Fallback rules if rules.json is missing or malformed AND the Sine pref is unset.
-export const DEFAULT_RULES = [
-  { name: "Calendar", domains: ["calendar.google.com", "connect.garmin.com"] },
-  { name: "AI Tools", domains: ["chat.openai.com", "gemini.google.com", "perplexity.ai"] },
-  { name: "Dev",      domains: ["dashboard.render.com", "github.com", "stackoverflow.com"] },
-  { name: "Shopping", domains: ["amazon.com", "staples.com", "ebay.com"] },
-  { name: "Social",   domains: ["reddit.com", "x.com", "bsky.app"] },
-  { name: "Search",   domains: ["google.com", "duckduckgo.com"] },
-];
+export const DEFAULT_RULES = [];
 
 // Zen's named tab-group palette. Storing the *name* lets Zen handle light/dark variants
 // via its native --tab-group-color-{name}* CSS variables. The hex column is the picker's

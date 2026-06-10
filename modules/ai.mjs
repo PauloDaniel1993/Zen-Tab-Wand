@@ -28,7 +28,7 @@ import {
   getLocalAIBatchSize,
 } from "./rules.mjs";
 import { getTabTitle, fetchPageSnippet } from "./tabs.mjs";
-import { findExistingGroup, expandIfCollapsed, applyGroupColor, findSafeInsertAnchor } from "./groups.mjs";
+import { findExistingGroup, expandIfCollapsed, applyGroupColor, findSafeInsertAnchor, medianFaviconColor } from "./groups.mjs";
 import { showToast } from "./ui-toast.mjs";
 
 // ─── Engine loaders (lazy + cached for the lifetime of the window) ───────────
@@ -811,7 +811,7 @@ const openZenEditModalForGroup = (groupEl) => {
   return false;
 };
 
-export const applyPass2 = (pass2Result, workspaceId, rules) => {
+export const applyPass2 = async (pass2Result, workspaceId, rules) => {
   const existingBehavior = getAIExistingBehavior();
   const newGroupBehavior = getAINewGroupBehavior();
 
@@ -850,8 +850,10 @@ export const applyPass2 = (pass2Result, workspaceId, rules) => {
     const tabs = cluster.tabs.map((t) => t._tab).filter((t) => t?.isConnected);
     if (tabs.length === 0) continue;
 
-    // Pick a not-yet-used palette color so the new group is visually distinct.
-    const color = pickAvailableColor(usedColors);
+    // Prefer the median favicon color for the grouped tabs. Fall back to the
+    // Zen palette when favicons are unavailable or unreadable.
+    const color = await medianFaviconColor(cluster.tabs) || pickAvailableColor(usedColors);
+    usedColors.add(color);
 
     try {
       const newGroup = gBrowser.addTabGroup(tabs, {

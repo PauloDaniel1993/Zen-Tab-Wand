@@ -187,7 +187,7 @@ export const handleOrganizeClick = async () => {
     // 6. Apply Pass 1 moves — UNLESS we're in a fresh-like mode, where AI
     // is about to re-tidy everything (and identify-only may even cancel).
     if (!isFreshLike) {
-      const result = applyPass1(byGroup, workspaceId, rules);
+      const result = await applyPass1(byGroup, workspaceId, rules);
       console.log(`${LOG} Applied: created ${result.createdGroups} new group(s), moved ${result.movedToNew} tab(s) into new groups, ${result.movedToExisting} tab(s) into existing groups.`);
       if (result.errors.length > 0) {
         console.warn(`${LOG} ${result.errors.length} error(s) during apply:`, result.errors);
@@ -473,7 +473,7 @@ export const handleOrganizeClick = async () => {
           }
 
           if (planToApply) {
-            const ai = applyPass2(planToApply, workspaceId, rules);
+            const ai = await applyPass2(planToApply, workspaceId, rules);
             console.log(`${LOG} Pass 2 applied: ${ai.movedToExisting} tab(s) → existing groups, ${ai.newGroupsCreated} new group(s), ${ai.rulesGrown} rule(s) grown, ${ai.newRulesCreated} new rule(s)`);
             // Use the filtered plan's skipped list for the post-apply cleanup
             // (in Plan Mode, this includes tabs from un-kept groups, which

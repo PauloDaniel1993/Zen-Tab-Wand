@@ -4,6 +4,26 @@
 
 import { CONFIG, DEFAULT_RULES, LOG, ZEN_COLOR_NAMES, isValidHex } from "./config.mjs";
 
+const LEGACY_DEFAULT_RULES = [
+  { name: "Calendar", domains: ["calendar.google.com", "connect.garmin.com"] },
+  { name: "AI Tools", domains: ["chat.openai.com", "gemini.google.com", "perplexity.ai"] },
+  { name: "Dev", domains: ["dashboard.render.com", "github.com", "stackoverflow.com"] },
+  { name: "Shopping", domains: ["amazon.com", "staples.com", "ebay.com"] },
+  { name: "Social", domains: ["reddit.com", "x.com", "bsky.app"] },
+  { name: "Search", domains: ["google.com", "duckduckgo.com"] },
+];
+
+const sameRules = (a, b) => {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((rule, i) => {
+    const other = b[i];
+    if (rule?.name !== other?.name) return false;
+    const domains = Array.isArray(rule?.domains) ? rule.domains : [];
+    const otherDomains = Array.isArray(other?.domains) ? other.domains : [];
+    return domains.length === otherDomains.length && domains.every((d, j) => d === otherDomains[j]);
+  });
+};
+
 /**
  * Read the rules pref written by the settings widget.
  *
@@ -35,6 +55,10 @@ export const readRulesPref = ({ keepIncomplete = false } = {}) => {
     if (!raw.trim()) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
+    if (sameRules(parsed, LEGACY_DEFAULT_RULES)) {
+      Services.prefs.setStringPref(CONFIG.RULES_PREF, JSON.stringify([]));
+      return [];
+    }
     const cleaned = parsed
       .map((r) => {
         const out = {

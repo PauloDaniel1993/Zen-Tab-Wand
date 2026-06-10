@@ -3,7 +3,7 @@
 // after the "Group Rules" separator. Also injects our stylesheet (Sine's chrome CSS
 // pipeline doesn't reach about:preferences scope).
 
-import { CONFIG, LOG, DEFAULT_RULES, BUILD_VERSION, h } from "./config.mjs";
+import { CONFIG, LOG, BUILD_VERSION, h } from "./config.mjs";
 import { readRulesPref, writeRulesPref, getAIEngine } from "./rules.mjs";
 import {
   buildRulesEditor,
@@ -458,15 +458,10 @@ const performInject = (dialog) => {
   const content = dialog.querySelector(".sineItemPreferenceDialogContent");
   if (!content) return;
 
-  // Seed the rules pref with defaults on first open if currently empty.
   // keepIncomplete: true so a blank row the user added in a previous session
   // (saved as `{name:"", domains:[]}`) reappears in the editor and can be
   // filled in. The wand-click pipeline (`loadRules`) still filters these out.
-  let initial = readRulesPref({ keepIncomplete: true });
-  if (!initial || initial.length === 0) {
-    initial = JSON.parse(JSON.stringify(DEFAULT_RULES));
-    writeRulesPref(initial);
-  }
+  const initial = readRulesPref({ keepIncomplete: true }) || [];
 
   const rulesEditor = buildRulesEditor(initial);
   const skipEditor = buildSkipDomainsEditor();
