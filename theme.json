@@ -20,6 +20,8 @@
   "image": "https://raw.githubusercontent.com/flantig/Zen-Tab-Wand/main/image.png",
   "author": "franklinl",
   "ai": "yes",
+  "origin": "store",
+  "no-updates": true,
   "version": "1.0.2",
   "preferences": "preferences.json",
   "tags": [
