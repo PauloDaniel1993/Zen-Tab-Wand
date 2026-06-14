@@ -44,6 +44,25 @@ const stripMetaPrefix = (s) => s
   .replace(/^\s*(?:new\s+)?(?:category|label|topic|bucket|group)\s*[:\-–]\s*/i, "")
   .trim();
 
+const fetchSnippetsForTabs = async (tabs, label = "Ollama") => {
+  const maxChars = label === "DeepSeek" ? 3200 : 1800;
+  const t0 = performance.now();
+  const snippets = await Promise.all((tabs || []).map((t) => {
+    const url = t.url || "";
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
+    return fetchPageSnippet(url, { maxChars });
+  }));
+  const hit = snippets.filter((s) => s).length;
+  console.log(`${LOG} ${label}: fetched page context for ${hit}/${tabs.length} tab(s) in ${Math.round(performance.now() - t0)}ms`);
+  console.groupCollapsed(`${LOG} ${label} page-context detail`);
+  console.log(
+    `${LOG} ${label} page-context detail:\n` +
+    tabs.map((t, i) => `  ${t.hostname || "(no host)"} -> ${snippets[i] ? `"${snippets[i].slice(0, 140)}${snippets[i].length > 140 ? "..." : ""}"` : "(no context)"}`).join("\n")
+  );
+  console.groupEnd();
+  return snippets;
+};
+
 // ─── Classify into existing rules ────────────────────────────────────────────
 // Returns Map<tabIndex, groupName | null>. Throws on transport / parse errors;
 // caller surfaces to the user. Used both directly (re-assign-to-planned in
@@ -58,7 +77,8 @@ export const classifyExistingGroupsBatch = async (
   label = "Ollama",
 ) => {
   if (!unmatched?.length || !rules?.length) return new Map();
-  const prompt = buildClassifyPrompt(rules, unmatched);
+  const snippets = await fetchSnippetsForTabs(unmatched, label);
+  const prompt = buildClassifyPrompt(rules, unmatched, snippets);
   const groupNames = rules.map((r) => r?.name).filter(Boolean);
 
   const r = await generateJson(prompt);
@@ -111,7 +131,8 @@ const clusterUnmatchedNewGroups = async (
   label = "Ollama",
 ) => {
   if (!leftover?.length) return { groups: [], skipped: [] };
-  const prompt = buildClusterPrompt(leftover);
+  const snippets = await fetchSnippetsForTabs(leftover, label);
+  const prompt = buildClusterPrompt(leftover, snippets);
 
   const r = await generateJson(prompt);
   if (!r.ok) throw new Error(`${label} cluster: ${r.error}`);
@@ -188,7 +209,7 @@ export const unifiedClassifyOllama = async (
   const snippets = await Promise.all(deduped.map((t) => {
     const url = t.url || "";
     if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
-    return fetchPageSnippet(url);
+    return fetchPageSnippet(url, { maxChars: label === "DeepSeek" ? 3200 : 1800 });
   }));
   const hit = snippets.filter((s) => s).length;
   console.log(`${LOG} Ollama: fetched page snippets for ${hit}/${deduped.length} tab(s) in ${Math.round(performance.now() - t0)}ms`);
@@ -456,7 +477,7 @@ export const runPass2OllamaFresh = async (
     const snippets = await Promise.all(deduped.map((t) => {
       const url = t.url || "";
       if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
-      return fetchPageSnippet(url);
+      return fetchPageSnippet(url, { maxChars: label === "DeepSeek" ? 3200 : 1800 });
     }));
     const hit = snippets.filter((s) => s).length;
     console.log(`${LOG} Ollama fresh: fetched snippets for ${hit}/${deduped.length} tab(s) in ${Math.round(performance.now() - t0)}ms`);

@@ -34,15 +34,17 @@ export const getHostname = (url) => {
 //
 // Fetches a tab's URL and extracts a structured signal block for the AI
 // classifier: page type (article/video/product/profile/...), site brand,
-// main heading, and description. The page TYPE is the strongest signal for
-// Arc-style intent-driven groupings ("Articles I'm reading" vs "Shopping").
+// headings, description, keywords, and visible page text. This gives the LLM
+// enough context to infer what each tab is for before sorting it.
 //
 // Fetches happen from chrome-privileged code with the user's cookie jar
 // (credentials: "include"), so authed pages return the real content rather
 // than a login wall. CORS doesn't apply at chrome scope.
 
-const SNIPPET_MAX_CHARS = 400;
-const SNIPPET_FETCH_TIMEOUT_MS = 3000;
+const SNIPPET_MAX_CHARS = 1800;
+const SNIPPET_FETCH_TIMEOUT_MS = 5000;
+const SNIPPET_HTML_MAX_CHARS = 300000;
+const SNIPPET_BODY_TEXT_MAX_CHARS = 1100;
 
 // Minimal HTML entity decoder — covers the entities that appear in meta tags.
 const decodeHtmlEntities = (s) => s
@@ -54,6 +56,16 @@ const decodeHtmlEntities = (s) => s
   .replace(/&apos;/g, "'")
   .replace(/&#x27;/g, "'")
   .replace(/&nbsp;/g, " ");
+
+const cleanText = (s) =>
+  decodeHtmlEntities(String(s || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+
+const truncate = (s, n) => {
+  const text = cleanText(s);
+  return text.length > n ? `${text.slice(0, n - 1).trim()}…` : text;
+};
 
 const extractMetaContent = (html, name) => {
   // Match either name="..." or property="..." with content before OR after,
@@ -78,12 +90,162 @@ const extractFirstH1 = (html) => {
   return decodeHtmlEntities(m[1].replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 };
 
+const firstMeta = (doc, selectors) => {
+  for (const selector of selectors) {
+    const value = doc.querySelector(selector)?.getAttribute("content");
+    if (value && value.trim()) return cleanText(value);
+  }
+  return "";
+};
+
+const parseJsonLdItems = (doc) => {
+  const out = [];
+  const visit = (value) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (value["@graph"]) visit(value["@graph"]);
+    out.push(value);
+  };
+
+  for (const node of doc.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      visit(JSON.parse(node.textContent || ""));
+    } catch {}
+    if (out.length >= 8) break;
+  }
+  return out;
+};
+
+const jsonLdValue = (items, keys) => {
+  for (const item of items) {
+    for (const key of keys) {
+      const value = item?.[key];
+      if (Array.isArray(value)) {
+        const joined = value
+          .map((v) => typeof v === "string" ? v : v?.name)
+          .filter(Boolean)
+          .join(", ");
+        if (joined) return cleanText(joined);
+      } else if (typeof value === "string" && value.trim()) {
+        return cleanText(value);
+      } else if (value && typeof value === "object" && typeof value.name === "string") {
+        return cleanText(value.name);
+      }
+    }
+  }
+  return "";
+};
+
+const collectHeadings = (doc) => {
+  const seen = new Set();
+  const headings = [];
+  for (const node of doc.querySelectorAll("h1, h2, h3")) {
+    const text = cleanText(node.textContent);
+    const lower = text.toLowerCase();
+    if (text.length < 3 || seen.has(lower)) continue;
+    seen.add(lower);
+    headings.push(text);
+    if (headings.length >= 7) break;
+  }
+  return headings;
+};
+
+const collectVisibleText = (doc, maxChars = SNIPPET_BODY_TEXT_MAX_CHARS) => {
+  const seen = new Set();
+  const blocks = [];
+  const selectors = [
+    "article p",
+    "main p",
+    '[role="main"] p',
+    "article li",
+    "main li",
+    '[role="main"] li',
+    "p",
+  ];
+
+  for (const selector of selectors) {
+    for (const node of doc.querySelectorAll(selector)) {
+      const text = cleanText(node.textContent);
+      const lower = text.toLowerCase();
+      if (text.length < 35 || seen.has(lower)) continue;
+      if (/^(cookie|privacy|subscribe|sign in|log in|accept all|advertisement)\b/i.test(text)) {
+        continue;
+      }
+      seen.add(lower);
+      blocks.push(text);
+      if (blocks.join(" ").length >= maxChars || blocks.length >= 10) {
+        return truncate(blocks.join(" "), maxChars);
+      }
+    }
+  }
+  return truncate(blocks.join(" "), maxChars);
+};
+
 // Pull a structured signal block instead of just the meta description. Each
 // element is tagged ([type: ...], [site: ...], [topic: ...]) so the LLM can
 // see them as distinct features rather than one blurry sentence. Empty
 // strings drop out — small sites with no OG metadata still get whatever's
 // available.
-const extractSnippetFromHtml = (html) => {
+const extractSnippetFromHtml = (html, maxChars = SNIPPET_MAX_CHARS) => {
+  if (typeof DOMParser !== "undefined") {
+    try {
+      const doc = new DOMParser().parseFromString(
+        html.slice(0, SNIPPET_HTML_MAX_CHARS),
+        "text/html"
+      );
+      doc.querySelectorAll("script:not([type='application/ld+json']), style, noscript, svg")
+        .forEach((node) => node.remove());
+
+      const jsonLd = parseJsonLdItems(doc);
+      const desc =
+        firstMeta(doc, [
+          'meta[name="description"]',
+          'meta[property="og:description"]',
+          'meta[name="twitter:description"]',
+        ]) ||
+        jsonLdValue(jsonLd, ["description", "abstract"]);
+      const type =
+        firstMeta(doc, ['meta[property="og:type"]']) ||
+        jsonLdValue(jsonLd, ["@type"]);
+      const site =
+        firstMeta(doc, [
+          'meta[property="og:site_name"]',
+          'meta[name="application-name"]',
+        ]) ||
+        jsonLdValue(jsonLd, ["publisher", "provider", "sourceOrganization"]);
+      const title =
+        firstMeta(doc, [
+          'meta[property="og:title"]',
+          'meta[name="twitter:title"]',
+        ]) ||
+        jsonLdValue(jsonLd, ["headline", "name"]) ||
+        cleanText(doc.querySelector("title")?.textContent || "");
+      const keywords =
+        firstMeta(doc, ['meta[name="keywords"]']) ||
+        jsonLdValue(jsonLd, ["keywords", "articleSection", "genre"]);
+      const headings = collectHeadings(doc);
+      const bodyMaxChars = Math.max(SNIPPET_BODY_TEXT_MAX_CHARS, Math.min(2200, maxChars - 700));
+      const context = collectVisibleText(doc, bodyMaxChars);
+
+      const parts = [];
+      if (type) parts.push(`[type: ${truncate(type, 70)}]`);
+      if (site) parts.push(`[site: ${truncate(site, 90)}]`);
+      if (title) parts.push(`[title: ${truncate(title, 160)}]`);
+      if (headings.length > 0) parts.push(`[headings: ${truncate(headings.join(" | "), 320)}]`);
+      if (keywords) parts.push(`[keywords: ${truncate(keywords, 220)}]`);
+      if (desc) parts.push(`[description: ${truncate(desc, 420)}]`);
+      if (context) parts.push(`[context: ${context}]`);
+
+      if (parts.length > 0) {
+        return parts.join(" ").replace(/\s+/g, " ").slice(0, maxChars).trim();
+      }
+    } catch {}
+  }
+
   const desc =
     extractMetaContent(html, "description") ||
     extractMetaContent(html, "og:description") ||
@@ -101,12 +263,12 @@ const extractSnippetFromHtml = (html) => {
   if (desc) parts.push(desc.slice(0, 250));
 
   if (parts.length === 0) return "";
-  return parts.join(" ").replace(/\s+/g, " ").slice(0, SNIPPET_MAX_CHARS).trim();
+  return parts.join(" ").replace(/\s+/g, " ").slice(0, maxChars).trim();
 };
 
 // Returns "" on any failure (404, timeout, network error, non-HTML response,
 // no usable meta tag). Caller treats empty as "no snippet, fall back to title".
-export const fetchPageSnippet = async (url) => {
+export const fetchPageSnippet = async (url, { maxChars = SNIPPET_MAX_CHARS } = {}) => {
   if (!url) return "";
   if (!url.startsWith("http://") && !url.startsWith("https://")) return "";
 
@@ -121,8 +283,8 @@ export const fetchPageSnippet = async (url) => {
     if (!res.ok) return "";
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (!ct.includes("html")) return "";
-    const html = await res.text();
-    return extractSnippetFromHtml(html);
+    const html = (await res.text()).slice(0, SNIPPET_HTML_MAX_CHARS);
+    return extractSnippetFromHtml(html, maxChars);
   } catch {
     return "";
   } finally {

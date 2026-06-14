@@ -28,7 +28,7 @@ const renderCategoryList = (rules) =>
 const renderTabLine = (t, i, snippet) => {
   const title = (t.title || "").slice(0, TITLE_LIMIT).replace(/\s+/g, " ").trim();
   const host = t.hostname || "(no hostname)";
-  const summaryLine = snippet ? `\n   Summary: "${snippet}"` : "";
+  const summaryLine = snippet ? `\n   Page context: "${snippet}"` : "";
   return `${i}. ${host} — "${title}"${summaryLine}`;
 };
 
@@ -37,30 +37,33 @@ const renderTabList = (tabs, snippets) =>
 
 // ─── Classify (Phase 3: fit into existing) ───────────────────────────────────
 
-export const buildClassifyPrompt = (rules, unmatched) =>
-  `Categorize each browser tab into one of the existing categories below. Pick the category whose example domains are most similar to the tab's hostname or topic.
+export const buildClassifyPrompt = (rules, unmatched, snippets) =>
+  `Categorize each browser tab into one of the existing categories below.
+
+For every tab, first infer the real page context: what the page is about, what kind of page it is, and what the user is likely doing with it. Use the Page context line when present; hostname and title alone are weaker signals. Then pick the existing category whose example domains and purpose are closest.
 
 Categories:
 ${renderCategoryList(rules)}
 
 Tabs:
-${renderTabList(unmatched)}
+${renderTabList(unmatched, snippets)}
 
 Output ONLY a JSON object mapping each tab number (as a string key) to the chosen category name. Use "none" ONLY for tabs that are genuinely unrelated to every category — most tabs should match a category.`;
 
 // ─── Cluster (older fallback: invent new groups for unmatched) ───────────────
 
-export const buildClusterPrompt = (leftover) =>
+export const buildClusterPrompt = (leftover, snippets) =>
   `These browser tabs don't fit any existing category. Group them into one or more NEW categories.
 
 Guidelines:
+- For each tab, infer its context and user intent from Page context first, then hostname/title.
 - Use short, clear category names in Title Case (1-3 words)
 - Group tabs together when they share a clear topic, type of site, or purpose
 - A single tab can be its own category if it's clearly its own topic
 - Put tabs that have no meaningful category in "skipped"
 
 Tabs:
-${renderTabList(leftover)}
+${renderTabList(leftover, snippets)}
 
 Output ONLY a JSON object with this exact shape:
 {
@@ -84,12 +87,15 @@ Output ONLY a JSON object with this exact shape:
 export const buildUnifiedPrompt = (rules, unmatched, snippets) =>
   `Sort the tabs below into a small number of buckets. Look at all of them together before deciding.
 
+For every tab, infer the real page context first: what the page is about, what kind of page it is, and what the user is likely doing with it. Use Page context as the strongest signal when present. Hostname and title are only fallback signals.
+
 For each tab, pick a single label that is one of:
 - One of the existing labels listed (matched exactly)
 - A short new label of your choosing (1-3 words, plain Title Case)
 - "skipped" if the tab really doesn't fit with anything
 
 Guidance:
+- Do not classify from hostname alone when Page context shows a clearer topic, task, or page type.
 - Use an existing label only when the tab is the SAME KIND of thing as that label's example domains — same service, same provider, or a near-equivalent substitute. The example domains define what the label means. Do NOT use an existing label as a generic catch-all because its name sounds related. If no existing label closely fits, create a new label or "skipped".
 - Several tabs about the same topic should share the SAME label. For example, three different gaming sites (news, marketplace, ranking) all belong under ONE shared label.
 - Aim for at most 1-2 new labels per batch. Broad buckets beat narrow ones.
@@ -113,13 +119,14 @@ export const buildFreshPrompt = (tabs, snippets) =>
 Tabs:
 ${renderTabList(tabs, snippets)}
 
-Each tab line may include a Summary with bracketed signals:
+Each tab line may include Page context with bracketed signals:
 - [type: ...] — the page type (article, video, product, profile, website, book, music.song, etc.). This is the strongest signal for intent: 'article' tabs are reading, 'video' tabs are watching, 'product' tabs are shopping.
 - [site: ...] — the site's brand name (e.g. "BBC News", "Vimeo").
 - [topic: ...] — the page's main heading.
 
 Guidelines:
 - Use the signals above to infer what the user is DOING with each tab, not just what website they're on. Prefer category names that reflect that intent — "Reading", "Watching", "Research", "Shopping", "Work tools" — over narrow topic labels like "BBC", "Vimeo Videos".
+- Do not classify from hostname alone when Page context shows a clearer topic, task, or page type.
 - When multiple tabs share a [type:] or describe the same underlying activity, they belong in the same category even if their hostnames differ.
 - Pick short, broad category names (1-3 words, Title Case).
 - Aim for a small total number of categories — broad buckets beat narrow ones. Most workspaces have 3-6 categories total.
